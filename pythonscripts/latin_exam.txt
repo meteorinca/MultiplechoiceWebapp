@@ -1,0 +1,265 @@
+Question 1: puella
+a. city
+b. land
+c. peace
+d. girl
+Answer: d
+
+Question 2: puer
+a. forum
+b. house
+c. boy
+d. horse
+Answer: c
+
+Question 3: vir
+a. peace
+b. king
+c. man
+d. gate
+Answer: c
+
+Question 4: femina
+a. road
+b. house
+c. country house
+d. woman
+Answer: d
+
+Question 5: rex
+a. king
+b. god
+c. mountain
+d. house
+Answer: a
+
+Question 6: regina
+a. land
+b. queen
+c. country house
+d. dog
+Answer: b
+
+Question 7: domus
+a. country house
+b. horse
+c. goddess
+d. house
+Answer: d
+
+Question 8: villa
+a. country house
+b. road
+c. house
+d. field
+Answer: a
+
+Question 9: urbs
+a. tree
+b. horse
+c. city
+d. man
+Answer: c
+
+Question 10: mare
+a. sea
+b. friend
+c. reason
+d. woman
+Answer: a
+
+Question 11: terra
+a. king
+b. tree
+c. land
+d. country house
+Answer: c
+
+Question 12: caelum
+a. boy
+b. peace
+c. field
+d. sky
+Answer: d
+
+Question 13: sol
+a. sun
+b. temple
+c. city
+d. friend
+Answer: a
+
+Question 14: luna
+a. reason
+b. moon
+c. man
+d. king
+Answer: b
+
+Question 15: lux
+a. light
+b. house
+c. wall
+d. tree
+Answer: a
+
+Question 16: nox
+a. sun
+b. man
+c. night
+d. war
+Answer: c
+
+Question 17: arbor
+a. field
+b. goddess
+c. tree
+d. house
+Answer: c
+
+Question 18: flumen
+a. river
+b. field
+c. reason
+d. peace
+Answer: a
+
+Question 19: mons
+a. mountain
+b. temple
+c. garden
+d. boy
+Answer: a
+
+Question 20: equus
+a. night
+b. sun
+c. horse
+d. gate
+Answer: c
+
+Question 21: canis
+a. boy
+b. road
+c. dog
+d. sea
+Answer: c
+
+Question 22: amicus
+a. river
+b. sea
+c. garden
+d. friend
+Answer: d
+
+Question 23: amica
+a. city
+b. friend
+c. horse
+d. dog
+Answer: b
+
+Question 24: dea
+a. goddess
+b. temple
+c. man
+d. peace
+Answer: a
+
+Question 25: deus
+a. ship
+b. sky
+c. peace
+d. god
+Answer: d
+
+Question 26: via
+a. light
+b. land
+c. goddess
+d. road
+Answer: d
+
+Question 27: insula
+a. girl
+b. boy
+c. ship
+d. island
+Answer: d
+
+Question 28: porta
+a. gate
+b. horse
+c. goddess
+d. king
+Answer: a
+
+Question 29: murus
+a. harbor
+b. sun
+c. sky
+d. wall
+Answer: d
+
+Question 30: navis
+a. man
+b. sky
+c. friend
+d. ship
+Answer: d
+
+Question 31: portus
+a. sky
+b. harbor
+c. river
+d. city
+Answer: b
+
+Question 32: ager
+a. harbor
+b. field
+c. woman
+d. goddess
+Answer: b
+
+Question 33: causa
+a. reason
+b. woman
+c. ship
+d. friend
+Answer: a
+
+Question 34: bellum
+a. sea
+b. war
+c. god
+d. harbor
+Answer: b
+
+Question 35: pax
+a. god
+b. night
+c. peace
+d. island
+Answer: c
+
+Question 36: templum
+a. war
+b. temple
+c. sun
+d. moon
+Answer: b
+
+Question 37: hortus
+a. harbor
+b. light
+c. horse
+d. garden
+Answer: d
+
+Question 38: forum
+a. island
+b. road
+c. forum
+d. man
+Answer: c
