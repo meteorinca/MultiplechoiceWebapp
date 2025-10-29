@@ -20,16 +20,16 @@ type AlertState =
 const App = () => {
   const isMobile = useMobile();
   const [exams, setExams] = useState<Exam[]>(defaultExams);
-  const [activeExamId, setActiveExamId] = useState<string>(
-    defaultExams[0]?.id ?? '',
-  );
+  const [activeExamId, setActiveExamId] = useState<string>('');
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [selections, setSelections] = useState<Selection[]>(() =>
-    Array(defaultExams[0]?.questions.length ?? 0).fill(null),
-  );
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selections, setSelections] = useState<Selection[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [alert, setAlert] = useState<AlertState>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showHelpGuide, setShowHelpGuide] = useState(false);
+  const [isExamActive, setIsExamActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -41,7 +41,6 @@ const App = () => {
         const parsed: Exam[] = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setExams(parsed);
-          setActiveExamId(parsed[0].id);
           return;
         }
       }
@@ -58,27 +57,61 @@ const App = () => {
   }, [exams]);
 
   useEffect(() => {
-    setSidebarOpen(!isMobile);
-  }, [isMobile]);
+    setSidebarOpen(!isMobile && isExamActive);
+    setIsMenuOpen(false);
+  }, [isMobile, isExamActive]);
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    const handleClick = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMenuOpen]);
 
   const activeExam = useMemo(() => {
-    return exams.find((exam) => exam.id === activeExamId) ?? exams[0];
+    if (!activeExamId) {
+      return undefined;
+    }
+    return exams.find((exam) => exam.id === activeExamId);
   }, [exams, activeExamId]);
 
   useEffect(() => {
-    if (!activeExam) {
+    if (!activeExam || !isExamActive) {
       setSelections([]);
       setCurrentIndex(0);
       return;
     }
     setSelections(Array(activeExam.questions.length).fill(null));
     setCurrentIndex(0);
-  }, [activeExam?.id]);
+  }, [activeExam?.id, isExamActive]);
 
   const totalQuestions = activeExam?.questions.length ?? 0;
   const currentQuestion =
-    totalQuestions > 0 ? activeExam?.questions[currentIndex] : undefined;
-  const hasQuestions = Boolean(activeExam && totalQuestions > 0 && currentQuestion);
+    isExamActive && totalQuestions > 0
+      ? activeExam?.questions[currentIndex]
+      : undefined;
+  const hasQuestions = Boolean(
+    isExamActive && activeExam && totalQuestions > 0 && currentQuestion,
+  );
 
   const score = useMemo(() => {
     return selections.reduce((count, selection) => {
@@ -91,8 +124,25 @@ const App = () => {
 
   const showStatus = Boolean(selections[currentIndex] && hasQuestions);
 
+  const startExam = (examId: string) => {
+    setActiveExamId(examId);
+    setIsExamActive(true);
+    setShowHelpGuide(false);
+    setIsMenuOpen(false);
+  };
+
+  const goToExamHub = () => {
+    setIsExamActive(false);
+    setActiveExamId('');
+    setSidebarOpen(false);
+    setCurrentIndex(0);
+    setSelections([]);
+    setShowHelpGuide(false);
+    setIsMenuOpen(false);
+  };
+
   const handleSelect = (choiceIndex: number) => {
-    if (!currentQuestion) {
+    if (!isExamActive || !currentQuestion) {
       return;
     }
     setSelections((prev) => {
@@ -114,8 +164,7 @@ const App = () => {
   };
 
   const handleExamSelect = (examId: string) => {
-    setActiveExamId(examId);
-    setSidebarOpen(!isMobile ? true : false);
+    startExam(examId);
   };
 
   const handleImportClick = () => {
@@ -161,7 +210,11 @@ const App = () => {
   };
 
   const handleExport = () => {
-    if (!activeExam || !activeExam.questions.length) {
+    if (!activeExam) {
+      setAlert({ text: 'Select an exam before exporting.', type: 'info' });
+      return;
+    }
+    if (!activeExam.questions.length) {
       setAlert({ text: 'No questions to export yet.', type: 'info' });
       return;
     }
@@ -194,112 +247,332 @@ c. child
 d. pull
 Answer: a`;
 
+  const showComingSoon = (feature: string) => {
+    setAlert({ text: `${feature} is coming soon.`, type: 'info' });
+  };
+
   return (
     <div className="min-h-screen bg-cream-50 px-4 py-6 sm:px-8 sm:py-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 md:flex-row">
         <main className="flex-1">
-          <div className="rounded-[32px] bg-white px-6 py-8 shadow-card sm:px-10 sm:py-12">
-            <div className="mb-4 flex justify-end">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,text/plain"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+
+          <div className="mb-4 flex justify-end">
+            <div ref={menuRef} className="relative">
               <button
                 type="button"
-                className="rounded-full border border-cream-100 bg-cream-50 px-4 py-2 text-sm font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-400"
-                onClick={() => setSidebarOpen((prev) => !prev)}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-cream-100 bg-white text-cocoa-500 shadow-sm transition hover:border-rose-200 hover:text-rose-400"
+                aria-haspopup="menu"
+                aria-expanded={isMenuOpen}
+                onClick={() => setIsMenuOpen((prev) => !prev)}
               >
-                {sidebarOpen ? 'Hide exam list' : 'Show exam list'}
+                <span className="sr-only">
+                  {isMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                </span>
+                <svg
+                  aria-hidden="true"
+                  className="h-5 w-5 text-current"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 6h16M4 12h16M4 18h16"
+                  />
+                </svg>
               </button>
-            </div>
-
-            {hasQuestions ? (
-              <>
-                <ExamHeader
-                  title={activeExam.title}
-                  score={score}
-                  total={totalQuestions}
-                  questionIndex={currentIndex}
-                />
-
-                <section className="mt-8">
-                  <p
-                    className={`${
-                      isMobile ? 'text-xl' : 'text-2xl'
-                    } font-semibold text-cocoa-500`}
-                  >
-                    {currentQuestion?.entry}
-                  </p>
-                </section>
-
-                <div className="mt-6 space-y-4">
-                  {currentQuestion!.options.map((option, index) => (
-                    <QuestionOption
-                      key={`${currentQuestion!.entry}-${option.label}`}
-                      option={option}
-                      isSelected={
-                        selections[currentIndex]?.optionIndex === index
+              {isMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 z-20 mt-3 w-60 rounded-2xl border border-cream-100 bg-white p-2 shadow-xl"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={!isExamActive}
+                    className={`w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
+                      isExamActive
+                        ? 'text-cocoa-500 hover:bg-cream-50'
+                        : 'cursor-not-allowed text-cocoa-300'
+                    }`}
+                    onClick={() => {
+                      if (!isExamActive) {
+                        return;
                       }
-                      isCorrectChoice={index === currentQuestion!.correctIndex}
-                      showStatus={showStatus}
-                      onSelect={() => handleSelect(index)}
-                    />
-                  ))}
+                      setIsMenuOpen(false);
+                      goToExamHub();
+                    }}
+                  >
+                    Go to exam hub
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      showComingSoon('Login');
+                    }}
+                  >
+                    Login
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      showComingSoon('Register');
+                    }}
+                  >
+                    Register
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      showComingSoon('Settings');
+                    }}
+                  >
+                    Settings
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      handleExport();
+                    }}
+                  >
+                    Export exam (.txt)
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      handleImportClick();
+                    }}
+                  >
+                    Import exam (.txt)
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      setShowHelpGuide((prev) => !prev);
+                    }}
+                  >
+                    {showHelpGuide ? 'Hide help guide' : 'Show help guide'}
+                  </button>
                 </div>
+              )}
+            </div>
+          </div>
 
-                <FeedbackPanel
-                  selection={selections[currentIndex]}
-                  question={currentQuestion!}
-                />
-
-                <NavigationControls
-                  hasPrev={currentIndex > 0}
-                  hasNext={currentIndex < totalQuestions - 1}
-                  onPrev={goPrev}
-                  onNext={goNext}
-                />
-              </>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-cream-100 bg-cream-50/60 px-6 py-10 text-center text-cocoa-400">
-                <p className="text-lg font-semibold">
-                  No questions are loaded yet.
-                </p>
-                <p className="mt-2 text-sm">
-                  Import a .txt file that follows the provided template to start
-                  practicing.
-                </p>
+          {isExamActive ? (
+            <div className="rounded-[32px] bg-white px-6 py-8 shadow-card sm:px-10 sm:py-12">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  className="rounded-full border border-cream-100 bg-cream-50 px-4 py-2 text-sm font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-400"
+                  onClick={goToExamHub}
+                >
+                  Back to exam hub
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-cream-100 bg-cream-50 px-4 py-2 text-sm font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-400"
+                  onClick={() => setSidebarOpen((prev) => !prev)}
+                >
+                  {sidebarOpen ? 'Hide exam list' : 'Show exam list'}
+                </button>
               </div>
-            )}
 
-            <section className="mt-10 rounded-3xl border border-cream-100 bg-cream-50/60 px-6 py-6">
+              {hasQuestions ? (
+                <>
+                  <ExamHeader
+                    title={activeExam?.title ?? 'Exam'}
+                    score={score}
+                    total={totalQuestions}
+                    questionIndex={currentIndex}
+                  />
+
+                  <section className="mt-8">
+                    <p
+                      className={`${
+                        isMobile ? 'text-xl' : 'text-2xl'
+                      } font-semibold text-cocoa-500`}
+                    >
+                      {currentQuestion?.entry}
+                    </p>
+                  </section>
+
+                  <div className="mt-6 space-y-4">
+                    {currentQuestion!.options.map((option, index) => (
+                      <QuestionOption
+                        key={`${currentQuestion!.entry}-${option.label}`}
+                        option={option}
+                        isSelected={
+                          selections[currentIndex]?.optionIndex === index
+                        }
+                        isCorrectChoice={index === currentQuestion!.correctIndex}
+                        showStatus={showStatus}
+                        onSelect={() => handleSelect(index)}
+                      />
+                    ))}
+                  </div>
+
+                  <FeedbackPanel
+                    selection={selections[currentIndex]}
+                    question={currentQuestion!}
+                  />
+
+                  <NavigationControls
+                    hasPrev={currentIndex > 0}
+                    hasNext={currentIndex < totalQuestions - 1}
+                    onPrev={goPrev}
+                    onNext={goNext}
+                  />
+                </>
+              ) : (
+                <div className="rounded-3xl border border-dashed border-cream-100 bg-cream-50/60 px-6 py-10 text-center text-cocoa-400">
+                  <p className="text-lg font-semibold">
+                    No questions are loaded yet.
+                  </p>
+                  <p className="mt-2 text-sm">
+                    Import a .txt file that follows the provided template to start
+                    practicing.
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-[32px] bg-white px-6 py-10 shadow-card sm:px-10 sm:py-16">
+              <header className="max-w-3xl">
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-400">
+                  Exam hub
+                </p>
+                <h1 className="mt-3 font-display text-4xl font-semibold text-cocoa-600">
+                  Choose an exam to begin practicing
+                </h1>
+                <p className="mt-4 text-base text-cocoa-400">
+                  Tap one of the stored exams below or import a new list of questions.
+                </p>
+              </header>
+
+              <div className="mt-10 grid gap-6 sm:grid-cols-2">
+                {exams.map((exam) => {
+                  const isSelectedCard = exam.id === activeExamId;
+                  return (
+                    <button
+                      key={exam.id}
+                      type="button"
+                      className={`group relative overflow-hidden rounded-[36px] border px-8 py-10 text-left transition-transform duration-200 ${
+                        isSelectedCard
+                          ? 'border-rose-400 bg-blush-200/60 shadow-xl'
+                          : 'border-transparent bg-cream-50/70 shadow-card hover:-translate-y-1 hover:shadow-2xl'
+                      }`}
+                      onClick={() => startExam(exam.id)}
+                    >
+                      <span className="text-sm font-semibold uppercase tracking-[0.3em] text-rose-400">
+                        Exam
+                      </span>
+                      <h2 className="mt-4 font-display text-2xl font-semibold text-cocoa-600">
+                        {exam.title}
+                      </h2>
+                      <p className="mt-6 text-sm font-medium text-cocoa-400">
+                        {exam.questions.length}{' '}
+                        {exam.questions.length === 1 ? 'question' : 'questions'}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {exams.length === 0 && (
+                <div className="mt-8 rounded-3xl border border-dashed border-cream-100 bg-cream-50/60 px-6 py-10 text-center text-cocoa-400">
+                  <p className="text-lg font-semibold">No exams stored yet.</p>
+                  <p className="mt-2 text-sm">
+                    Import a plain-text exam file to get started.
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-10 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  className="rounded-2xl bg-rose-400 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-500"
+                  onClick={handleImportClick}
+                >
+                  Import exam (.txt)
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
+                    activeExam
+                      ? 'border-rose-200 text-rose-500 hover:bg-blush-200/40'
+                      : 'cursor-not-allowed border-cream-100 text-cocoa-300'
+                  }`}
+                  onClick={handleExport}
+                  disabled={!activeExam}
+                >
+                  Export current exam (.txt)
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showHelpGuide && (
+            <section className="mt-10 rounded-3xl border border-cream-100 bg-cream-50/60 px-6 py-6 sm:px-10">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="font-display text-xl font-semibold text-rose-500">
                     Import or Export
                   </h3>
                   <p className="text-sm text-cocoa-400">
-                    Use a plain-text file to add new exams or share the current
-                    one.
+                    Use a plain-text file to add new exams or share the current one.
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-col gap-2 sm:items-end">
+                  <div className="flex flex-wrap gap-3 sm:justify-end">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-500 transition hover:bg-blush-200/40"
+                      onClick={handleExport}
+                    >
+                      Export exam (.txt)
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-rose-400 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500"
+                      onClick={handleImportClick}
+                    >
+                      Import exam (.txt)
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="rounded-2xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-500 transition hover:bg-blush-200/40"
-                    onClick={handleExport}
+                    className="self-end rounded-2xl border border-cream-100 px-4 py-2 text-sm font-semibold text-cocoa-400 transition hover:border-rose-200 hover:text-rose-400"
+                    onClick={() => setShowHelpGuide(false)}
                   >
-                    Export exam (.txt)
+                    Hide guide
                   </button>
-                  <button
-                    type="button"
-                    className="rounded-2xl bg-rose-400 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500"
-                    onClick={handleImportClick}
-                  >
-                    Import exam (.txt)
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".txt,text/plain"
-                    className="hidden"
-                    onChange={handleFileChange}
-                  />
                 </div>
               </div>
               <div className="mt-4 rounded-2xl bg-white/80 p-4 text-sm text-cocoa-400">
@@ -311,24 +584,28 @@ Answer: a`;
                 </pre>
               </div>
             </section>
+          )}
 
-            {alert && (
+          {alert && (
+            <div className="mt-6">
               <InlineMessage
                 text={alert.text}
                 type={alert.type}
                 onDismiss={() => setAlert(null)}
               />
-            )}
-          </div>
+            </div>
+          )}
         </main>
 
-        <ExamSidebar
-          exams={exams}
-          activeExamId={activeExam?.id ?? ''}
-          isOpen={sidebarOpen}
-          onSelect={handleExamSelect}
-          onToggle={() => setSidebarOpen((prev) => !prev)}
-        />
+        {isExamActive && (
+          <ExamSidebar
+            exams={exams}
+            activeExamId={activeExamId}
+            isOpen={sidebarOpen}
+            onSelect={handleExamSelect}
+            onToggle={() => setSidebarOpen((prev) => !prev)}
+          />
+        )}
       </div>
     </div>
   );

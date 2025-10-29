@@ -1,4 +1,4 @@
-# Exam Maker
+ï»¿# Exam Maker
 
 Exam Maker is a responsive React + TypeScript web app for running multiple-choice exams on any device. It mirrors a polished flashcard/exam experience, supports unlimited stored exams, and lets you import or export plain-text files for quick sharing across subjects.
 
@@ -32,11 +32,11 @@ Exam Maker is a responsive React + TypeScript web app for running multiple-choic
    Optimized assets land in `dist/`.
 
 ## Key Folders
-- `src/App.tsx` – Main layout, exam state management, import/export logic.
-- `src/components/` – Header, sidebar, question options, feedback panel, inline messages, and navigation buttons.
-- `src/hooks/use-mobile.tsx` – Hook for responsive typography/behavior tweaks.
-- `src/data/exams.ts` – Default sample exam that appears on first load.
-- `src/utils/exam-io.ts` – Plain-text parser and serializer used for import/export.
+- `src/App.tsx` - Main layout, exam state management, import/export logic.
+- `src/components/` - Header, sidebar, question options, feedback panel, inline messages, and navigation buttons.
+- `src/hooks/use-mobile.tsx` - Hook for responsive typography/behavior tweaks.
+- `src/data/exams.ts` - Default sample exam that appears on first load.
+- `src/utils/exam-io.ts` - Plain-text parser and serializer used for import/export.
 
 ## Import Format
 Use a UTF-8 `.txt` file with this pattern (repeat the Question block as needed, up to 1000 questions):
@@ -63,6 +63,31 @@ Click **Export exam (.txt)** to download the active exam in the same format. Sha
 
 ## Testing
 `npm run build` runs `tsc` type-checking plus Vite's production build, ensuring the project compiles cleanly.
+
+## Deploying to Firebase Hosting
+1. Install the [Firebase CLI](https://firebase.google.com/docs/cli) if you have not already:
+   ```bash
+   npm install -g firebase-tools
+   ```
+2. Update `.firebaserc` with your Firebase project ID:
+   ```json
+   {
+     "projects": {
+       "default": "your-project-id"
+     }
+   }
+   ```
+3. Log in and make sure you are targeting the right project:
+   ```bash
+   firebase login
+   firebase use default
+   ```
+4. Build the app and deploy:
+   ```bash
+   npm run build
+   firebase deploy --only hosting
+   ```
+The included `firebase.json` config serves the Vite build output from `dist/` and rewrites all routes to `index.html` for client-side navigation.
 
 ## License
 MIT (adjust as needed for your repository).

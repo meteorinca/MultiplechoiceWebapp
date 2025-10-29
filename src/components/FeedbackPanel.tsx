@@ -8,15 +8,11 @@ interface FeedbackPanelProps {
 
 const FeedbackPanel: FC<FeedbackPanelProps> = ({ selection, question }) => {
   if (!selection) {
-    return (
-      <div className="mt-8 rounded-2xl border border-dashed border-[rgba(66,36,26,0.18)] bg-cream-100/60 px-5 py-4 text-sm font-medium text-cocoa-300">
-        Choose the best meaning to reveal feedback.
-      </div>
-    );
+    return null;
   }
 
   const correctOption = question.options[question.correctIndex];
-  const isCorrect = selection?.isCorrect;
+  const isCorrect = selection.isCorrect;
 
   return (
     <div
