@@ -5,8 +5,9 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 ## Features
 - Modern Tailwind CSS UI with mobile-first layout that mirrors the reference mockup.
 - KaTeX-powered math typesetting: wrap any prompt or option in `$$...$$` to render LaTeX equations.
-- Stored exam management with localStorage persistence, quick switching, plain-text import/export, and one-click deletion.
+- Stored exam management with Firebase Cloud Firestore sync (plus local caching), quick switching, plain-text import/export, and one-click deletion.
 - Optional shuffle toggles for question order and answer order before each practice session.
+- Math rendering toggle so editors can opt into KaTeX parsing (wrap inline math with `$$...$$`).
 - Inline feedback (stars/frowns), real-time scoring, and forward/backward navigation.
 - Completion summary with score, percentage, and quick actions to retake or jump back to the exam hub.
 - Non-blocking inline notices for parser issues instead of modal alerts.
@@ -15,6 +16,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 ## Tech Stack
 - [Vite](https://vitejs.dev/) + React 18 + TypeScript
 - Tailwind CSS 3
+- Firebase Cloud Firestore (client SDK)
 - KaTeX + react-katex for equation rendering
 - Local storage for persisting exam data between sessions
 
@@ -34,20 +36,37 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
    ```
    Optimized assets land in `dist/`.
 
+## Cloud Sync Setup (Firestore)
+1. In the Firebase console, enable **Cloud Firestore** for your project and choose production mode (adjust rules as needed).
+2. (Optional for local dev or manual config) create a `.env.local` (or `.env`) in the project root with:
+   ```env
+   VITE_FIREBASE_API_KEY=...
+   VITE_FIREBASE_AUTH_DOMAIN=...
+   VITE_FIREBASE_PROJECT_ID=...
+   VITE_FIREBASE_STORAGE_BUCKET=...
+   VITE_FIREBASE_MESSAGING_SENDER_ID=...
+   VITE_FIREBASE_APP_ID=...
+   ```
+3. Restart `npm run dev` so Vite picks up the environment variables.
+4. When deployed to Firebase Hosting, the SDK automatically reads the config exposed by `/__/firebase/init.js`, so the `.env` file is only required when you want to run against Firestore outside of hosting.
+
 ## Key Folders
 - `src/App.tsx` - Main layout, exam state management, import/export logic, localStorage sync.
 - `src/components/` - Header, sidebar, navigation controls, question options, summary view, math renderer, and feedback panel.
 - `src/hooks/use-mobile.tsx` - Responsive breakpoint hook.
 - `src/data/exams.ts` - Default sample exam shown on first load; safe place to seed demo content.
 - `src/utils/exam-io.ts` - Plain-text parser and serializer used for import/export.
+- `src/utils/cloud-exams.ts` - Firestore helpers (subscribe/upsert/delete) used to keep the library in sync.
+- `src/lib/firebase.ts` - Firebase app + Firestore initialization sourced from Vite environment variables.
 
 ## Working With Exams
 - **Import**: Click **Import exam (.txt)** and supply a UTF-8 text file that follows the template below.
 - **Delete**: Use the Delete badge on each exam tile or the sidebar to remove it from storage (active exam deletion drops you back to the hub).
 - **Shuffle**: Toggle **Shuffle questions** or **Shuffle answers** in the hub before starting a session; the layout resets each time you click an exam.
+- **Math**: Enable **Render math ($$...$$)** when you import calculus-heavy content to display inline formulas via KaTeX.
 - **Export**: Click **Export current exam (.txt)** to download the active exam in the same text format.
 - **Complete**: Answer the final question and hit **Finish exam** to view the scorecard with retake and back-to-hub shortcuts.
-- **Persistence**: Exams are stored under the localStorage key `omniExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
+- **Persistence**: Exams sync to Firebase Cloud Firestore (when configured) and fall back to the localStorage key `omniExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
 
 ### Import Format
 Repeat the Question block as needed, up to 1000 questions:
@@ -74,7 +93,8 @@ Guidelines:
 - **State shape**: Exams are arrays of `{ id, title, questions[] }`, where each question contains `entry`, `options`, and `correctIndex`.
 - **Session prep**: `prepareSessionQuestions` in `App.tsx` shuffles questions/answers per the hub toggles while recalculating the correct index each run.
 - **Math rendering**: `MathText` (in `src/components/MathText.tsx`) tokenizes `$$` segments and pipes them to `react-katex`. Use `displayMode="inline"` when embedding within buttons or inline copy.
-- **Exam lifecycle**: `App.tsx` drives navigation, scoring, import/export, and localStorage syncing. Sidebar and hub actions call `handleExamSelect`, `handleDeleteExam`, and `goToExamHub`.
+- **Exam lifecycle**: `App.tsx` drives navigation, scoring, import/export, local/cloud persistence, and localStorage caching. Sidebar and hub actions call `handleExamSelect`, `handleDeleteExam`, and `goToExamHub`.
+- **Cloud sync**: `src/utils/cloud-exams.ts` wraps Firestore subscriptions and mutations; `App.tsx` seeds the default exam and keeps the local cache aligned when the remote collection changes.
 - **Completion**: `handleFinishExam` swaps the question view for `ExamSummary`, which reports the score and wires up retake/back actions.
 - **Styling**: Tailwind classes are colocated with components; follow existing naming, and favor semantic wrappers when adding new UI.
 

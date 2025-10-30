@@ -7,7 +7,7 @@ interface ExamSidebarProps {
   isOpen: boolean;
   onSelect: (id: string) => void;
   onToggle: () => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
 }
 
 const ExamSidebar: FC<ExamSidebarProps> = ({
@@ -68,7 +68,7 @@ const ExamSidebar: FC<ExamSidebarProps> = ({
                 className="absolute right-3 top-3 rounded-full border border-transparent bg-white/80 px-3 py-1 text-xs font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDelete(exam.id);
+                  void onDelete(exam.id);
                 }}
               >
                 Delete

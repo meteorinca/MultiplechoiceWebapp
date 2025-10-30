@@ -8,10 +8,16 @@ import ExamSidebar from './components/ExamSidebar';
 import ExamSummary from './components/ExamSummary';
 import MathText from './components/MathText';
 import InlineMessage from './components/InlineMessage';
-import { defaultExams } from './data/exams';
+import { defaultExam, defaultExams } from './data/exams';
 import useMobile from './hooks/use-mobile';
 import { parseExamText, serializeExam } from './utils/exam-io';
 import type { Exam, Question, Selection } from './types/question';
+import {
+  deleteCloudExam,
+  subscribeToCloudExams,
+  upsertCloudExam,
+} from './utils/cloud-exams';
+import { isFirebaseConfigured } from './lib/firebase';
 
 const STORAGE_KEY = 'omniExamStudio.exams';
 const LEGACY_STORAGE_KEY = 'latinExamMaker.exams';
@@ -92,9 +98,11 @@ const App = () => {
   const [sessionExam, setSessionExam] = useState<SessionExam | null>(null);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [shuffleAnswers, setShuffleAnswers] = useState(false);
+  const [renderMath, setRenderMath] = useState(false);
   const [isSummaryVisible, setIsSummaryVisible] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const hasSeededCloudRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -128,6 +136,43 @@ const App = () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(exams));
     window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   }, [exams]);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) {
+      return;
+    }
+
+    const unsubscribe = subscribeToCloudExams(
+      async (cloudExams, { fromCache }) => {
+        if (cloudExams.length === 0) {
+          if (!fromCache && !hasSeededCloudRef.current) {
+            try {
+              await upsertCloudExam(defaultExam);
+              hasSeededCloudRef.current = true;
+            } catch (error) {
+              // eslint-disable-next-line no-console
+              console.error('Failed to seed default exam in Firestore.', error);
+            }
+          }
+          return;
+        }
+        hasSeededCloudRef.current = true;
+        setExams(cloudExams);
+      },
+      (error) => {
+        // eslint-disable-next-line no-console
+        console.error('Failed to sync exams from Firestore.', error);
+        setAlert({
+          text: 'Could not sync exams with cloud storage. Showing local copy.',
+          type: 'error',
+        });
+      },
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     setSidebarOpen(!isMobile && isExamActive);
@@ -297,7 +342,7 @@ const App = () => {
     startExam(examId);
   };
 
-  const handleDeleteExam = (examId: string) => {
+  const handleDeleteExam = async (examId: string) => {
     const examToDelete = exams.find((exam) => exam.id === examId);
     if (!examToDelete) {
       return;
@@ -323,6 +368,19 @@ const App = () => {
       text: `Deleted "${examToDelete.title}".`,
       type: 'info',
     });
+
+    if (isFirebaseConfigured) {
+      try {
+        await deleteCloudExam(examId);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to delete exam from Firestore.', error);
+        setAlert({
+          text: 'Deleted locally but could not remove from cloud yet.',
+          type: 'error',
+        });
+      }
+    }
   };
 
   const handleImportClick = () => {
@@ -351,9 +409,21 @@ const App = () => {
         };
         setExams((prev) => [...prev, newExam]);
         setActiveExamId(id);
+        let cloudSynced = false;
+        if (isFirebaseConfigured) {
+          try {
+            await upsertCloudExam(newExam);
+            cloudSynced = true;
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error('Failed to persist exam to Firestore.', error);
+          }
+        }
         setAlert({
-          text: `Imported "${parsed.data.title}" successfully.`,
-          type: 'success',
+          text: cloudSynced || !isFirebaseConfigured
+            ? `Imported "${parsed.data.title}" successfully.`
+            : `Imported "${parsed.data.title}" locally. Cloud sync will retry shortly.`,
+          type: cloudSynced || !isFirebaseConfigured ? 'success' : 'info',
         });
       }
     } catch {
@@ -584,6 +654,7 @@ Answer: a`;
                       <MathText
                         text={currentQuestion?.entry ?? ''}
                         displayMode="block"
+                        enabled={renderMath}
                         className={`${
                           isMobile ? 'text-xl' : 'text-2xl'
                         } font-semibold text-cocoa-500`}
@@ -603,6 +674,7 @@ Answer: a`;
                           }
                           showStatus={showStatus}
                           onSelect={() => handleSelect(index)}
+                          renderMath={renderMath}
                         />
                       ))}
                     </div>
@@ -610,6 +682,7 @@ Answer: a`;
                     <FeedbackPanel
                       selection={selections[currentIndex]}
                       question={currentQuestion!}
+                      renderMath={renderMath}
                     />
 
                     <NavigationControls
@@ -680,7 +753,7 @@ Answer: a`;
                         className="absolute right-6 top-6 rounded-full border border-transparent bg-white/80 px-4 py-2 text-xs font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2"
                         onClick={(event) => {
                           event.stopPropagation();
-                          handleDeleteExam(exam.id);
+                          void handleDeleteExam(exam.id);
                         }}
                       >
                         Delete
@@ -740,8 +813,17 @@ Answer: a`;
                   />
                   Shuffle answers
                 </label>
+                <label className="flex items-center gap-2 font-semibold text-cocoa-500">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                    checked={renderMath}
+                    onChange={(event) => setRenderMath(event.target.checked)}
+                  />
+                  Render math ($$...$$)
+                </label>
                 <span className="text-xs font-medium text-cocoa-400">
-                  Applies the next time you start an exam
+                  Shuffle changes apply next session; math toggle updates instantly
                 </span>
               </div>
             </div>

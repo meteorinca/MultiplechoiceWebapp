@@ -12,6 +12,7 @@ interface MathTextProps {
   text: string;
   className?: string;
   displayMode?: DisplayMode;
+  enabled?: boolean;
 }
 
 const splitSegments = (text: string): Segment[] => {
@@ -59,12 +60,22 @@ const MathText: FC<MathTextProps> = ({
   text,
   className,
   displayMode = 'block',
+  enabled = true,
 }) => {
-  const segments = useMemo(() => splitSegments(text), [text]);
+  const segments = useMemo(() => {
+    if (!enabled) {
+      return [];
+    }
+    return splitSegments(text);
+  }, [enabled, text]);
   const Wrapper = displayMode === 'inline' ? 'span' : 'div';
 
+  if (!enabled) {
+    return <Wrapper className={className}>{renderTextContent(text)}</Wrapper>;
+  }
+
   if (!segments.length) {
-    return <Wrapper className={className}>{text}</Wrapper>;
+    return <Wrapper className={className}>{renderTextContent(text)}</Wrapper>;
   }
 
   return (
