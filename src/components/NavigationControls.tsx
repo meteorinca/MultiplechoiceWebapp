@@ -3,11 +3,25 @@ import type { FC } from 'react';
 interface NavigationControlsProps {
   hasPrev: boolean;
   hasNext: boolean;
+  canProceed: boolean;
   onPrev: () => void;
   onNext: () => void;
+  onFinish: () => void;
 }
 
-const NavigationControls: FC<NavigationControlsProps> = ({ hasPrev, hasNext, onPrev, onNext }) => {
+const NavigationControls: FC<NavigationControlsProps> = ({
+  hasPrev,
+  hasNext,
+  canProceed,
+  onPrev,
+  onNext,
+  onFinish,
+}) => {
+  const isLastStep = !hasNext;
+  const handlePrimary = isLastStep ? onFinish : onNext;
+  const isPrimaryDisabled = isLastStep ? !canProceed : !canProceed || !hasNext;
+  const primaryLabel = isLastStep ? 'Finish exam' : 'Next';
+
   return (
     <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
       <button
@@ -24,15 +38,15 @@ const NavigationControls: FC<NavigationControlsProps> = ({ hasPrev, hasNext, onP
       </button>
       <button
         type="button"
-        disabled={!hasNext}
-        onClick={onNext}
+        disabled={isPrimaryDisabled}
+        onClick={handlePrimary}
         className={`rounded-2xl px-5 py-3 text-lg font-semibold text-white transition-all ${
-          hasNext
-            ? 'bg-rose-400 hover:bg-rose-500'
-            : 'bg-cocoa-300 opacity-60'
+          isPrimaryDisabled
+            ? 'bg-cocoa-300 opacity-60'
+            : 'bg-rose-400 hover:bg-rose-500'
         }`}
       >
-        Next
+        {primaryLabel}
       </button>
     </div>
   );

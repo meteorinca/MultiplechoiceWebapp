@@ -6,7 +6,9 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 - Modern Tailwind CSS UI with mobile-first layout that mirrors the reference mockup.
 - KaTeX-powered math typesetting: wrap any prompt or option in `$$...$$` to render LaTeX equations.
 - Stored exam management with localStorage persistence, quick switching, plain-text import/export, and one-click deletion.
+- Optional shuffle toggles for question order and answer order before each practice session.
 - Inline feedback (stars/frowns), real-time scoring, and forward/backward navigation.
+- Completion summary with score, percentage, and quick actions to retake or jump back to the exam hub.
 - Non-blocking inline notices for parser issues instead of modal alerts.
 - Accessibility-minded focus states, aria labels, and descriptive feedback copy.
 
@@ -34,7 +36,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 
 ## Key Folders
 - `src/App.tsx` - Main layout, exam state management, import/export logic, localStorage sync.
-- `src/components/` - Header, sidebar, navigation controls, question options, math renderer, and feedback panel.
+- `src/components/` - Header, sidebar, navigation controls, question options, summary view, math renderer, and feedback panel.
 - `src/hooks/use-mobile.tsx` - Responsive breakpoint hook.
 - `src/data/exams.ts` - Default sample exam shown on first load; safe place to seed demo content.
 - `src/utils/exam-io.ts` - Plain-text parser and serializer used for import/export.
@@ -42,7 +44,9 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 ## Working With Exams
 - **Import**: Click **Import exam (.txt)** and supply a UTF-8 text file that follows the template below.
 - **Delete**: Use the Delete badge on each exam tile or the sidebar to remove it from storage (active exam deletion drops you back to the hub).
+- **Shuffle**: Toggle **Shuffle questions** or **Shuffle answers** in the hub before starting a session; the layout resets each time you click an exam.
 - **Export**: Click **Export current exam (.txt)** to download the active exam in the same text format.
+- **Complete**: Answer the final question and hit **Finish exam** to view the scorecard with retake and back-to-hub shortcuts.
 - **Persistence**: Exams are stored under the localStorage key `omniExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
 
 ### Import Format
@@ -68,8 +72,10 @@ Guidelines:
 
 ### Architecture Notes
 - **State shape**: Exams are arrays of `{ id, title, questions[] }`, where each question contains `entry`, `options`, and `correctIndex`.
+- **Session prep**: `prepareSessionQuestions` in `App.tsx` shuffles questions/answers per the hub toggles while recalculating the correct index each run.
 - **Math rendering**: `MathText` (in `src/components/MathText.tsx`) tokenizes `$$` segments and pipes them to `react-katex`. Use `displayMode="inline"` when embedding within buttons or inline copy.
 - **Exam lifecycle**: `App.tsx` drives navigation, scoring, import/export, and localStorage syncing. Sidebar and hub actions call `handleExamSelect`, `handleDeleteExam`, and `goToExamHub`.
+- **Completion**: `handleFinishExam` swaps the question view for `ExamSummary`, which reports the score and wires up retake/back actions.
 - **Styling**: Tailwind classes are colocated with components; follow existing naming, and favor semantic wrappers when adding new UI.
 
 ## Testing

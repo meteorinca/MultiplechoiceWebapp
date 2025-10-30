@@ -1,19 +1,78 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import ExamHeader from './components/ExamHeader';
 import QuestionOption from './components/QuestionOption';
 import FeedbackPanel from './components/FeedbackPanel';
 import NavigationControls from './components/NavigationControls';
 import ExamSidebar from './components/ExamSidebar';
+import ExamSummary from './components/ExamSummary';
 import MathText from './components/MathText';
 import InlineMessage from './components/InlineMessage';
 import { defaultExams } from './data/exams';
 import useMobile from './hooks/use-mobile';
 import { parseExamText, serializeExam } from './utils/exam-io';
-import type { Exam, Selection } from './types/question';
+import type { Exam, Question, Selection } from './types/question';
 
 const STORAGE_KEY = 'omniExamStudio.exams';
 const LEGACY_STORAGE_KEY = 'latinExamMaker.exams';
+
+type SessionExam = {
+  id: string;
+  title: string;
+  questions: Question[];
+};
+
+const shuffleArray = <T,>(items: T[]): T[] => {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+};
+
+const prepareSessionQuestions = (
+  exam: Exam,
+  options: { shuffleQuestions: boolean; shuffleAnswers: boolean },
+): Question[] => {
+  const questionPool = options.shuffleQuestions
+    ? shuffleArray(exam.questions)
+    : exam.questions.slice();
+
+  return questionPool.map((question) => {
+    if (!options.shuffleAnswers) {
+      return {
+        entry: question.entry,
+        options: question.options.map((option) => ({ ...option })),
+        correctIndex: question.correctIndex,
+      };
+    }
+
+    const optionPool = question.options.map((option, optionIndex) => ({
+      ...option,
+      originalIndex: optionIndex,
+    }));
+
+    const shuffledOptions = shuffleArray(optionPool).map(
+      (optionWithIndex, idx) => ({
+        label: String.fromCharCode(97 + idx),
+        text: optionWithIndex.text,
+        originalIndex: optionWithIndex.originalIndex,
+      }),
+    );
+
+    const newCorrectIndex = shuffledOptions.findIndex(
+      (option) => option.originalIndex === question.correctIndex,
+    );
+
+    return {
+      entry: question.entry,
+      options: shuffledOptions.map(({ originalIndex, ...option }) => option),
+      correctIndex:
+        newCorrectIndex >= 0 ? newCorrectIndex : question.correctIndex,
+    };
+  });
+};
 
 type AlertState =
   | { text: string; type: 'success' | 'error' | 'info' }
@@ -30,6 +89,10 @@ const App = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showHelpGuide, setShowHelpGuide] = useState(false);
   const [isExamActive, setIsExamActive] = useState(false);
+  const [sessionExam, setSessionExam] = useState<SessionExam | null>(null);
+  const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [shuffleAnswers, setShuffleAnswers] = useState(false);
+  const [isSummaryVisible, setIsSummaryVisible] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -105,22 +168,24 @@ const App = () => {
   }, [exams, activeExamId]);
 
   useEffect(() => {
-    if (!activeExam || !isExamActive) {
+    if (!sessionExam || !isExamActive) {
       setSelections([]);
       setCurrentIndex(0);
+      setIsSummaryVisible(false);
       return;
     }
-    setSelections(Array(activeExam.questions.length).fill(null));
+    setSelections(Array(sessionExam.questions.length).fill(null));
     setCurrentIndex(0);
-  }, [activeExam?.id, isExamActive]);
+    setIsSummaryVisible(false);
+  }, [sessionExam?.id, isExamActive]);
 
-  const totalQuestions = activeExam?.questions.length ?? 0;
+  const totalQuestions = sessionExam?.questions.length ?? 0;
   const currentQuestion =
     isExamActive && totalQuestions > 0
-      ? activeExam?.questions[currentIndex]
+      ? sessionExam?.questions[currentIndex]
       : undefined;
   const hasQuestions = Boolean(
-    isExamActive && activeExam && totalQuestions > 0 && currentQuestion,
+    isExamActive && sessionExam && totalQuestions > 0 && currentQuestion,
   );
 
   const score = useMemo(() => {
@@ -132,27 +197,52 @@ const App = () => {
     }, 0);
   }, [selections]);
 
-  const showStatus = Boolean(selections[currentIndex] && hasQuestions);
+  const canProceed = Boolean(selections[currentIndex]);
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < totalQuestions - 1;
 
-  const startExam = (examId: string) => {
-    setActiveExamId(examId);
-    setIsExamActive(true);
-    setShowHelpGuide(false);
-    setIsMenuOpen(false);
-  };
+  const showStatus = Boolean(
+    selections[currentIndex] && hasQuestions && !isSummaryVisible,
+  );
+
+  const startExam = useCallback(
+    (examId: string) => {
+      const selectedExam = exams.find((exam) => exam.id === examId);
+      if (!selectedExam) {
+        return;
+      }
+      setActiveExamId(examId);
+      setIsSummaryVisible(false);
+      setIsExamActive(true);
+      setShowHelpGuide(false);
+      setIsMenuOpen(false);
+      const preparedQuestions = prepareSessionQuestions(selectedExam, {
+        shuffleQuestions,
+        shuffleAnswers,
+      });
+      setSessionExam({
+        id: selectedExam.id,
+        title: selectedExam.title,
+        questions: preparedQuestions,
+      });
+    },
+    [exams, shuffleAnswers, shuffleQuestions],
+  );
 
   const goToExamHub = () => {
     setIsExamActive(false);
     setActiveExamId('');
+    setSessionExam(null);
     setSidebarOpen(false);
     setCurrentIndex(0);
     setSelections([]);
     setShowHelpGuide(false);
     setIsMenuOpen(false);
+    setIsSummaryVisible(false);
   };
 
   const handleSelect = (choiceIndex: number) => {
-    if (!isExamActive || !currentQuestion) {
+    if (!isExamActive || !currentQuestion || isSummaryVisible) {
       return;
     }
     setSelections((prev) => {
@@ -166,11 +256,41 @@ const App = () => {
   };
 
   const goPrev = () => {
+    if (isSummaryVisible) {
+      return;
+    }
     setCurrentIndex((index) => Math.max(0, index - 1));
   };
 
   const goNext = () => {
+    if (isSummaryVisible) {
+      return;
+    }
     setCurrentIndex((index) => Math.min(totalQuestions - 1, index + 1));
+  };
+
+  const handleFinishExam = () => {
+    if (!sessionExam) {
+      return;
+    }
+    setIsSummaryVisible(true);
+    setSidebarOpen(false);
+  };
+
+  const handleRetakeExam = () => {
+    const examId = sessionExam?.id ?? activeExamId;
+    if (!examId) {
+      return;
+    }
+    const exists = exams.some((exam) => exam.id === examId);
+    if (!exists) {
+      setAlert({
+        text: 'That exam is no longer available.',
+        type: 'info',
+      });
+      return;
+    }
+    startExam(examId);
   };
 
   const handleExamSelect = (examId: string) => {
@@ -179,14 +299,28 @@ const App = () => {
 
   const handleDeleteExam = (examId: string) => {
     const examToDelete = exams.find((exam) => exam.id === examId);
+    if (!examToDelete) {
+      return;
+    }
+
+    let confirmed = true;
+    if (typeof window !== 'undefined') {
+      confirmed = window.confirm(
+        `Delete "${examToDelete.title}" from your stored exams?`,
+      );
+    }
+    if (!confirmed) {
+      return;
+    }
+
     setExams((prev) => prev.filter((exam) => exam.id !== examId));
-    if (examId === activeExamId) {
+
+    if (examId === activeExamId || sessionExam?.id === examId) {
       goToExamHub();
     }
+
     setAlert({
-      text: examToDelete
-        ? `Deleted "${examToDelete.title}".`
-        : 'Removed the selected exam.',
+      text: `Deleted "${examToDelete.title}".`,
       type: 'info',
     });
   };
@@ -429,51 +563,65 @@ Answer: a`;
               </div>
 
               {hasQuestions ? (
-                <>
-                  <ExamHeader
-                    title={activeExam?.title ?? 'Exam'}
+                isSummaryVisible && sessionExam ? (
+                  <ExamSummary
+                    title={sessionExam.title}
                     score={score}
                     total={totalQuestions}
-                    questionIndex={currentIndex}
+                    onRetake={handleRetakeExam}
+                    onExit={goToExamHub}
                   />
-
-                  <section className="mt-8">
-                    <MathText
-                      text={currentQuestion?.entry ?? ''}
-                      displayMode="block"
-                      className={`${
-                        isMobile ? 'text-xl' : 'text-2xl'
-                      } font-semibold text-cocoa-500`}
+                ) : (
+                  <>
+                    <ExamHeader
+                      title={sessionExam?.title ?? activeExam?.title ?? 'Exam'}
+                      score={score}
+                      total={totalQuestions}
+                      questionIndex={currentIndex}
                     />
-                  </section>
 
-                  <div className="mt-6 space-y-4">
-                    {currentQuestion!.options.map((option, index) => (
-                      <QuestionOption
-                        key={`${currentQuestion!.entry}-${option.label}`}
-                        option={option}
-                        isSelected={
-                          selections[currentIndex]?.optionIndex === index
-                        }
-                        isCorrectChoice={index === currentQuestion!.correctIndex}
-                        showStatus={showStatus}
-                        onSelect={() => handleSelect(index)}
+                    <section className="mt-8">
+                      <MathText
+                        text={currentQuestion?.entry ?? ''}
+                        displayMode="block"
+                        className={`${
+                          isMobile ? 'text-xl' : 'text-2xl'
+                        } font-semibold text-cocoa-500`}
                       />
-                    ))}
-                  </div>
+                    </section>
 
-                  <FeedbackPanel
-                    selection={selections[currentIndex]}
-                    question={currentQuestion!}
-                  />
+                    <div className="mt-6 space-y-4">
+                      {currentQuestion!.options.map((option, index) => (
+                        <QuestionOption
+                          key={`${currentQuestion!.entry}-${option.label}`}
+                          option={option}
+                          isSelected={
+                            selections[currentIndex]?.optionIndex === index
+                          }
+                          isCorrectChoice={
+                            index === currentQuestion!.correctIndex
+                          }
+                          showStatus={showStatus}
+                          onSelect={() => handleSelect(index)}
+                        />
+                      ))}
+                    </div>
 
-                  <NavigationControls
-                    hasPrev={currentIndex > 0}
-                    hasNext={currentIndex < totalQuestions - 1}
-                    onPrev={goPrev}
-                    onNext={goNext}
-                  />
-                </>
+                    <FeedbackPanel
+                      selection={selections[currentIndex]}
+                      question={currentQuestion!}
+                    />
+
+                    <NavigationControls
+                      hasPrev={hasPrev}
+                      hasNext={hasNext}
+                      canProceed={canProceed}
+                      onPrev={goPrev}
+                      onNext={goNext}
+                      onFinish={handleFinishExam}
+                    />
+                  </>
+                )
               ) : (
                 <div className="rounded-3xl border border-dashed border-cream-100 bg-cream-50/60 px-6 py-10 text-center text-cocoa-400">
                   <p className="text-lg font-semibold">
@@ -571,6 +719,30 @@ Answer: a`;
                 >
                   Export current exam (.txt)
                 </button>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-4 text-sm">
+                <label className="flex items-center gap-2 font-semibold text-cocoa-500">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                    checked={shuffleQuestions}
+                    onChange={(event) => setShuffleQuestions(event.target.checked)}
+                  />
+                  Shuffle questions
+                </label>
+                <label className="flex items-center gap-2 font-semibold text-cocoa-500">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                    checked={shuffleAnswers}
+                    onChange={(event) => setShuffleAnswers(event.target.checked)}
+                  />
+                  Shuffle answers
+                </label>
+                <span className="text-xs font-medium text-cocoa-400">
+                  Applies the next time you start an exam
+                </span>
               </div>
             </div>
           )}
