@@ -5,13 +5,15 @@ import QuestionOption from './components/QuestionOption';
 import FeedbackPanel from './components/FeedbackPanel';
 import NavigationControls from './components/NavigationControls';
 import ExamSidebar from './components/ExamSidebar';
+import MathText from './components/MathText';
 import InlineMessage from './components/InlineMessage';
 import { defaultExams } from './data/exams';
 import useMobile from './hooks/use-mobile';
 import { parseExamText, serializeExam } from './utils/exam-io';
 import type { Exam, Selection } from './types/question';
 
-const STORAGE_KEY = 'latinExamMaker.exams';
+const STORAGE_KEY = 'omniExamStudio.exams';
+const LEGACY_STORAGE_KEY = 'latinExamMaker.exams';
 
 type AlertState =
   | { text: string; type: 'success' | 'error' | 'info' }
@@ -37,8 +39,15 @@ const App = () => {
     }
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed: Exam[] = JSON.parse(stored);
+      const legacyStored = stored
+        ? null
+        : window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      const payload = stored ?? legacyStored;
+      if (legacyStored) {
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+      if (payload) {
+        const parsed: Exam[] = JSON.parse(payload);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setExams(parsed);
           return;
@@ -54,6 +63,7 @@ const App = () => {
       return;
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(exams));
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   }, [exams]);
 
   useEffect(() => {
@@ -165,6 +175,20 @@ const App = () => {
 
   const handleExamSelect = (examId: string) => {
     startExam(examId);
+  };
+
+  const handleDeleteExam = (examId: string) => {
+    const examToDelete = exams.find((exam) => exam.id === examId);
+    setExams((prev) => prev.filter((exam) => exam.id !== examId));
+    if (examId === activeExamId) {
+      goToExamHub();
+    }
+    setAlert({
+      text: examToDelete
+        ? `Deleted "${examToDelete.title}".`
+        : 'Removed the selected exam.',
+      type: 'info',
+    });
   };
 
   const handleImportClick = () => {
@@ -414,13 +438,13 @@ Answer: a`;
                   />
 
                   <section className="mt-8">
-                    <p
+                    <MathText
+                      text={currentQuestion?.entry ?? ''}
+                      displayMode="block"
                       className={`${
                         isMobile ? 'text-xl' : 'text-2xl'
                       } font-semibold text-cocoa-500`}
-                    >
-                      {currentQuestion?.entry}
-                    </p>
+                    />
                   </section>
 
                   <div className="mt-6 space-y-4">
@@ -466,7 +490,7 @@ Answer: a`;
             <div className="rounded-[32px] bg-white px-6 py-10 shadow-card sm:px-10 sm:py-16">
               <header className="max-w-3xl">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-400">
-                  Exam hub
+                  Omni Exam Studio
                 </p>
                 <h1 className="mt-3 font-display text-4xl font-semibold text-cocoa-600">
                   Choose an exam to begin practicing
@@ -479,28 +503,41 @@ Answer: a`;
               <div className="mt-10 grid gap-6 sm:grid-cols-2">
                 {exams.map((exam) => {
                   const isSelectedCard = exam.id === activeExamId;
+                  const cardClasses = isSelectedCard
+                    ? 'border-rose-400 bg-blush-200/60 shadow-xl'
+                    : 'border-transparent bg-cream-50/70 shadow-card hover:-translate-y-1 hover:shadow-2xl';
                   return (
-                    <button
-                      key={exam.id}
-                      type="button"
-                      className={`group relative overflow-hidden rounded-[36px] border px-8 py-10 text-left transition-transform duration-200 ${
-                        isSelectedCard
-                          ? 'border-rose-400 bg-blush-200/60 shadow-xl'
-                          : 'border-transparent bg-cream-50/70 shadow-card hover:-translate-y-1 hover:shadow-2xl'
-                      }`}
-                      onClick={() => startExam(exam.id)}
-                    >
-                      <span className="text-sm font-semibold uppercase tracking-[0.3em] text-rose-400">
-                        Exam
-                      </span>
-                      <h2 className="mt-4 font-display text-2xl font-semibold text-cocoa-600">
-                        {exam.title}
-                      </h2>
-                      <p className="mt-6 text-sm font-medium text-cocoa-400">
-                        {exam.questions.length}{' '}
-                        {exam.questions.length === 1 ? 'question' : 'questions'}
-                      </p>
-                    </button>
+                    <div key={exam.id} className="group relative">
+                      <button
+                        type="button"
+                        className={`flex w-full flex-col overflow-hidden rounded-[36px] border px-8 py-10 text-left transition-transform duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 ${cardClasses}`}
+                        onClick={() => startExam(exam.id)}
+                      >
+                        <span className="text-sm font-semibold uppercase tracking-[0.3em] text-rose-400">
+                          Exam
+                        </span>
+                        <h2 className="mt-4 font-display text-2xl font-semibold text-cocoa-600">
+                          {exam.title}
+                        </h2>
+                        <p className="mt-6 text-sm font-medium text-cocoa-400">
+                          {exam.questions.length}{' '}
+                          {exam.questions.length === 1
+                            ? 'question'
+                            : 'questions'}
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${exam.title}`}
+                        className="absolute right-6 top-6 rounded-full border border-transparent bg-white/80 px-4 py-2 text-xs font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteExam(exam.id);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -604,6 +641,7 @@ Answer: a`;
             isOpen={sidebarOpen}
             onSelect={handleExamSelect}
             onToggle={() => setSidebarOpen((prev) => !prev)}
+            onDelete={handleDeleteExam}
           />
         )}
       </div>

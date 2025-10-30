@@ -1,18 +1,19 @@
-﻿# Exam Maker
+# Omni Exam Studio
 
-Exam Maker is a responsive React + TypeScript web app for running multiple-choice exams on any device. It mirrors a polished flashcard/exam experience, supports unlimited stored exams, and lets you import or export plain-text files for quick sharing across subjects.
+Omni Exam Studio is a responsive React + TypeScript web app for building and running multiple-choice exams across every discipline - science, technology, engineering, art, languages, and math (including equation rendering). It mirrors a polished testing experience, supports unlimited stored exams, and keeps everything in local storage so your question banks follow you between sessions.
 
 ## Features
-- Modern UI with Tailwind CSS and mobile-friendly layout that matches the reference mockup.
-- Hideable exam library sidebar with localStorage persistence so every imported exam is one tap away.
-- Plain-text import/export pipeline that works for up to 1000 questions without vendor lock-in.
-- Non-blocking inline notices for formatting issues instead of modal alerts.
-- Scoring, per-question feedback (star for correct, frown for incorrect), and previous/next navigation controls.
+- Modern Tailwind CSS UI with mobile-first layout that mirrors the reference mockup.
+- KaTeX-powered math typesetting: wrap any prompt or option in `$$...$$` to render LaTeX equations.
+- Stored exam management with localStorage persistence, quick switching, plain-text import/export, and one-click deletion.
+- Inline feedback (stars/frowns), real-time scoring, and forward/backward navigation.
+- Non-blocking inline notices for parser issues instead of modal alerts.
 - Accessibility-minded focus states, aria labels, and descriptive feedback copy.
 
 ## Tech Stack
 - [Vite](https://vitejs.dev/) + React 18 + TypeScript
 - Tailwind CSS 3
+- KaTeX + react-katex for equation rendering
 - Local storage for persisting exam data between sessions
 
 ## Getting Started
@@ -32,34 +33,44 @@ Exam Maker is a responsive React + TypeScript web app for running multiple-choic
    Optimized assets land in `dist/`.
 
 ## Key Folders
-- `src/App.tsx` - Main layout, exam state management, import/export logic.
-- `src/components/` - Header, sidebar, question options, feedback panel, inline messages, and navigation buttons.
-- `src/hooks/use-mobile.tsx` - Hook for responsive typography/behavior tweaks.
-- `src/data/exams.ts` - Default sample exam that appears on first load.
+- `src/App.tsx` - Main layout, exam state management, import/export logic, localStorage sync.
+- `src/components/` - Header, sidebar, navigation controls, question options, math renderer, and feedback panel.
+- `src/hooks/use-mobile.tsx` - Responsive breakpoint hook.
+- `src/data/exams.ts` - Default sample exam shown on first load; safe place to seed demo content.
 - `src/utils/exam-io.ts` - Plain-text parser and serializer used for import/export.
 
-## Import Format
-Use a UTF-8 `.txt` file with this pattern (repeat the Question block as needed, up to 1000 questions):
+## Working With Exams
+- **Import**: Click **Import exam (.txt)** and supply a UTF-8 text file that follows the template below.
+- **Delete**: Use the Delete badge on each exam tile or the sidebar to remove it from storage (active exam deletion drops you back to the hub).
+- **Export**: Click **Export current exam (.txt)** to download the active exam in the same text format.
+- **Persistence**: Exams are stored under the localStorage key `omniExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
+
+### Import Format
+Repeat the Question block as needed, up to 1000 questions:
 
 ```
 Title: My Custom Exam
 
-Question 1: Sample prompt goes here
+Question 1: Sample prompt goes here $$E = mc^2$$
 a. Option one
-b. Option two
+b. Option two $$\int_0^1 x^2 \, dx$$
 c. Option three
 d. Option four
-Answer: a
+Answer: b
 ```
 
 Guidelines:
 - Lines can include numbering (for example `Question 12:`) but must start with the word `Question`.
 - Answer letters must match one of the option labels (`a`, `b`, `c`, etc.).
+- Wrap any LaTeX math in `$$...$$`; the renderer supports multi-line expressions.
 - Blank lines are ignored, so spacing is flexible.
 - If formatting is off, the app shows a small inline warning, never a blocking popup.
 
-## Exporting
-Click **Export exam (.txt)** to download the active exam in the same format. Share or edit the file, then re-import anywhere.
+### Architecture Notes
+- **State shape**: Exams are arrays of `{ id, title, questions[] }`, where each question contains `entry`, `options`, and `correctIndex`.
+- **Math rendering**: `MathText` (in `src/components/MathText.tsx`) tokenizes `$$` segments and pipes them to `react-katex`. Use `displayMode="inline"` when embedding within buttons or inline copy.
+- **Exam lifecycle**: `App.tsx` drives navigation, scoring, import/export, and localStorage syncing. Sidebar and hub actions call `handleExamSelect`, `handleDeleteExam`, and `goToExamHub`.
+- **Styling**: Tailwind classes are colocated with components; follow existing naming, and favor semantic wrappers when adding new UI.
 
 ## Testing
 `npm run build` runs `tsc` type-checking plus Vite's production build, ensuring the project compiles cleanly.
@@ -91,5 +102,3 @@ The included `firebase.json` config serves the Vite build output from `dist/` an
 
 ## License
 MIT (adjust as needed for your repository).
-
-Enjoy crafting exams for any subject!

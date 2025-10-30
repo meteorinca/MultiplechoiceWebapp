@@ -1,4 +1,5 @@
 import type { FC } from 'react';
+import MathText from './MathText';
 import type { Question, Selection } from '../types/question';
 
 interface FeedbackPanelProps {
@@ -30,9 +31,14 @@ const FeedbackPanel: FC<FeedbackPanelProps> = ({ selection, question }) => {
       {isCorrect ? (
         <span>Correct!</span>
       ) : (
-        <span>
-          Nope. Right answer: {correctOption.label}. {correctOption.text}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span>Nope. Right answer: {correctOption.label}.</span>
+          <MathText
+            text={correctOption.text}
+            displayMode="inline"
+            className="inline text-inherit"
+          />
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
-import type { ChoiceOption } from '../types/question';
 import type { FC } from 'react';
+import MathText from './MathText';
+import type { ChoiceOption } from '../types/question';
 
 interface QuestionOptionProps {
   option: ChoiceOption;
@@ -39,15 +40,19 @@ const QuestionOption: FC<QuestionOptionProps> = ({
       type="button"
       aria-label={`Option ${option.label}`}
       disabled={disabled}
-      className={`flex w-full items-center justify-between rounded-2xl border px-5 py-3 text-left font-medium text-cocoa-500 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 ${stateClass} ${disabled ? 'cursor-not-allowed opacity-90' : ''}`}
+      className={`flex w-full items-stretch justify-between rounded-2xl border px-5 py-3 text-left font-medium text-cocoa-500 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 ${stateClass} ${disabled ? 'cursor-not-allowed opacity-90' : ''}`}
       onClick={onSelect}
     >
-      <span className="flex items-center gap-3">
+      <div className="flex w-full items-start gap-3">
         <span className="text-lg font-semibold text-rose-400">
           {option.label}.
         </span>
-        <span className="text-base sm:text-lg">{option.text}</span>
-      </span>
+        <MathText
+          text={option.text}
+          displayMode="inline"
+          className="flex-1 text-base leading-relaxed text-current sm:text-lg"
+        />
+      </div>
     </button>
   );
 };

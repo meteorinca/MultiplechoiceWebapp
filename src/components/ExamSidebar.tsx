@@ -7,6 +7,7 @@ interface ExamSidebarProps {
   isOpen: boolean;
   onSelect: (id: string) => void;
   onToggle: () => void;
+  onDelete: (id: string) => void;
 }
 
 const ExamSidebar: FC<ExamSidebarProps> = ({
@@ -15,6 +16,7 @@ const ExamSidebar: FC<ExamSidebarProps> = ({
   isOpen,
   onSelect,
   onToggle,
+  onDelete,
 }) => {
   return (
     <aside
@@ -45,7 +47,7 @@ const ExamSidebar: FC<ExamSidebarProps> = ({
         {exams.map((exam) => {
           const isActive = exam.id === activeExamId;
           return (
-            <li key={exam.id}>
+            <li key={exam.id} className="relative">
               <button
                 type="button"
                 className={`w-full rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${
@@ -54,11 +56,22 @@ const ExamSidebar: FC<ExamSidebarProps> = ({
                     : 'border-transparent bg-cream-50 text-cocoa-500 hover:border-cocoa-100'
                 }`}
                 onClick={() => onSelect(exam.id)}
+                >
+                  <span className="block text-base">{exam.title}</span>
+                  <span className="text-xs font-medium text-cocoa-300">
+                    {exam.questions.length} questions
+                  </span>
+                </button>
+              <button
+                type="button"
+                aria-label={`Delete ${exam.title}`}
+                className="absolute right-3 top-3 rounded-full border border-transparent bg-white/80 px-3 py-1 text-xs font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete(exam.id);
+                }}
               >
-                <span className="block text-base">{exam.title}</span>
-                <span className="text-xs font-medium text-cocoa-300">
-                  {exam.questions.length} questions
-                </span>
+                Delete
               </button>
             </li>
           );
