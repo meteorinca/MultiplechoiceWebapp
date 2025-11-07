@@ -18,4 +18,5 @@ export type Exam = {
   id: string;
   title: string;
   questions: Question[];
+  ownerId?: string;
 };

@@ -7,7 +7,6 @@ interface QuestionOptionProps {
   isSelected: boolean;
   isCorrectChoice: boolean;
   showStatus: boolean;
-  renderMath?: boolean;
   disabled?: boolean;
   onSelect: () => void;
 }
@@ -17,7 +16,6 @@ const QuestionOption: FC<QuestionOptionProps> = ({
   isSelected,
   isCorrectChoice,
   showStatus,
-  renderMath = true,
   disabled,
   onSelect,
 }) => {
@@ -52,7 +50,6 @@ const QuestionOption: FC<QuestionOptionProps> = ({
         <MathText
           text={option.text}
           displayMode="inline"
-          enabled={renderMath}
           className="flex-1 text-base leading-relaxed text-current sm:text-lg"
         />
       </div>

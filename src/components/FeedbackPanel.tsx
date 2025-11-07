@@ -5,14 +5,9 @@ import type { Question, Selection } from '../types/question';
 interface FeedbackPanelProps {
   selection: Selection;
   question: Question;
-  renderMath?: boolean;
 }
 
-const FeedbackPanel: FC<FeedbackPanelProps> = ({
-  selection,
-  question,
-  renderMath = true,
-}) => {
+const FeedbackPanel: FC<FeedbackPanelProps> = ({ selection, question }) => {
   if (!selection) {
     return null;
   }
@@ -41,7 +36,6 @@ const FeedbackPanel: FC<FeedbackPanelProps> = ({
           <MathText
             text={correctOption.text}
             displayMode="inline"
-            enabled={renderMath}
             className="inline text-inherit"
           />
         </div>
