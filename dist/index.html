@@ -7,10 +7,37 @@
     <link rel="apple-touch-icon" href="/assets/favicon.png" />
     <meta name="theme-color" content="#fef7f3" />
     <title>Omni Exam Studio</title>
-    <script type="module" crossorigin src="/assets/index-97F5Hp8z.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-M8462jPi.css">
+    <script type="module" crossorigin src="/assets/index-CZ1R-P6i.js"></script>
   </head>
   <body class="bg-cream-50">
     <div id="root"></div>
+    <script>
+      window.__firebaseConfigReady__ =
+        window.__firebaseConfigReady__ ||
+        (async () => {
+          if (typeof fetch !== 'function') {
+            return;
+          }
+          try {
+            const response = await fetch('/__/firebase/init.json', {
+              cache: 'no-store',
+            });
+            if (!response.ok) {
+              return;
+            }
+            const config = await response.json();
+            if (!config?.projectId) {
+              return;
+            }
+            const defaults = window.__FIREBASE_DEFAULTS__ || {};
+            window.__FIREBASE_DEFAULTS__ = {
+              ...defaults,
+              config: defaults.config ?? config,
+            };
+          } catch {
+            // Ignore network failures; the app will fall back to local persistence.
+          }
+        })();
+    </script>
   </body>
 </html>

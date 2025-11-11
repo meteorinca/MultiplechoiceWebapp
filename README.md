@@ -48,7 +48,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
    VITE_FIREBASE_APP_ID=...
    ```
 3. Restart `npm run dev` so Vite picks up the environment variables.
-4. When deployed to Firebase Hosting, the SDK automatically reads the config exposed by `/__/firebase/init.js`, so the `.env` file is only required when you want to run against Firestore outside of hosting.
+4. When deployed to Firebase Hosting, the app now fetches the runtime config from `/__/firebase/init.json` **before** booting the React bundle, so Firestore connects with no extra scripts. The `.env` file is only required when you want to run against Firestore outside of hosting.
 
 ## Key Folders
 - `src/App.tsx` - Main layout, exam state management, import/export logic, localStorage sync.

@@ -10,6 +10,42 @@
   </head>
   <body class="bg-cream-50">
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.__firebaseConfigReady__ =
+        window.__firebaseConfigReady__ ||
+        (async () => {
+          if (typeof fetch !== 'function') {
+            return;
+          }
+          try {
+            const response = await fetch('/__/firebase/init.json', {
+              cache: 'no-store',
+            });
+            if (!response.ok) {
+              return;
+            }
+            const config = await response.json();
+            if (!config?.projectId) {
+              return;
+            }
+            const defaults = window.__FIREBASE_DEFAULTS__ || {};
+            window.__FIREBASE_DEFAULTS__ = {
+              ...defaults,
+              config: defaults.config ?? config,
+            };
+          } catch {
+            // Ignore network failures; the app will fall back to local persistence.
+          }
+        })();
+    </script>
+    <script type="module">
+      const startApp = async () => {
+        if (window.__firebaseConfigReady__) {
+          await window.__firebaseConfigReady__;
+        }
+        await import('/src/main.tsx');
+      };
+      startApp();
+    </script>
   </body>
 </html>
