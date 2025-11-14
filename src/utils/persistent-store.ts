@@ -1,4 +1,4 @@
-type StoreName = 'users' | 'exams';
+type StoreName = 'users' | 'exams' | 'sessions' | 'attempts';
 
 const DB_NAME = 'omniExamStudio.db';
 const DB_VERSION = 1;
@@ -11,6 +11,8 @@ let storageMode: StorageMode | null = null;
 const memoryStore: Record<StoreName, Record<string, unknown>> = {
   users: {},
   exams: {},
+  sessions: {},
+  attempts: {},
 };
 
 const isIndexedDBAvailable = (): boolean =>

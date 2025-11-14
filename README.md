@@ -6,6 +6,8 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 - Modern Tailwind CSS UI with mobile-first layout that mirrors the reference mockup.
 - KaTeX-powered math typesetting: wrap any prompt or option in `$$...$$` to render LaTeX equations.
 - Stored exam management with Firebase Cloud Firestore sync (plus local caching), quick switching, plain-text import/export, and one-click deletion.
+- Fill-in-the-blank prompts alongside multiple-choice questions, all graded instantly.
+- Built-in admin console that logs every sign-in and graded attempt so you always know who practiced, when, and for how long.
 - Optional shuffle toggles for question order and answer order before each practice session.
 - Math rendering toggle so editors can opt into KaTeX parsing (wrap inline math with `$$...$$`).
 - Inline feedback (stars/frowns), real-time scoring, and forward/backward navigation.
@@ -58,12 +60,18 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 - `src/utils/exam-io.ts` - Plain-text parser and serializer used for import/export.
 - `src/utils/cloud-exams.ts` - Firestore helpers (subscribe/upsert/delete) used to keep the library in sync.
 - `src/lib/firebase.ts` - Firebase app + Firestore initialization sourced from Vite environment variables.
+- `src/utils/activity-log.ts` - Session + attempt logging helpers that feed the admin console.
+
+### Admin Account
+- A starter admin login (`admin` / `chingon`) is provisioned automatically and seeded with an Omni starter exam so you can begin moderating immediately.
+- Inside the admin console you can see every session (login time, logout time, total duration) plus each finished attempt (score + runtime) to keep tabs on your students.
 
 ## Working With Exams
 - **Import**: Click **Import exam (.txt)** and supply a UTF-8 text file that follows the template below.
 - **Delete**: Use the Delete badge on each exam tile or the sidebar to remove it from storage (active exam deletion drops you back to the hub).
 - **Shuffle**: Toggle **Shuffle questions** or **Shuffle answers** in the hub before starting a session; the layout resets each time you click an exam.
 - **Math**: Enable **Render math ($$...$$)** when you import calculus-heavy content to display inline formulas via KaTeX.
+- **Fill-in-the-blank**: Add `Type: fill` + a free-form `Answer:` line to ask for typed responses—grading ignores case and double spaces.
 - **Export**: Click **Export current exam (.txt)** to download the active exam in the same text format.
 - **Complete**: Answer the final question and hit **Finish exam** to view the scorecard with retake and back-to-hub shortcuts.
 - **Persistence**: Exams sync to Firebase Cloud Firestore (when configured) and fall back to the localStorage key `omniExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
@@ -80,17 +88,22 @@ b. Option two $$\int_0^1 x^2 \, dx$$
 c. Option three
 d. Option four
 Answer: b
+
+Question 2: Translate "salve"
+Type: fill
+Answer: hello
 ```
 
 Guidelines:
 - Lines can include numbering (for example `Question 12:`) but must start with the word `Question`.
 - Answer letters must match one of the option labels (`a`, `b`, `c`, etc.).
+- For free-response prompts, add `Type: fill` and write the exact text on the `Answer:` line. Skip the option list for these entries.
 - Wrap any LaTeX math in `$$...$$`; the renderer supports multi-line expressions.
 - Blank lines are ignored, so spacing is flexible.
 - If formatting is off, the app shows a small inline warning, never a blocking popup.
 
 ### Architecture Notes
-- **State shape**: Exams are arrays of `{ id, title, questions[] }`, where each question contains `entry`, `options`, and `correctIndex`.
+- **State shape**: Exams are arrays of `{ id, title, questions[] }`, where each question declares a `kind` of `choice` (with `options` + `correctIndex`) or `fill` (with a `correctAnswer`).
 - **Session prep**: `prepareSessionQuestions` in `App.tsx` shuffles questions/answers per the hub toggles while recalculating the correct index each run.
 - **Math rendering**: `MathText` (in `src/components/MathText.tsx`) tokenizes `$$` segments and pipes them to `react-katex`. Use `displayMode="inline"` when embedding within buttons or inline copy.
 - **Exam lifecycle**: `App.tsx` drives navigation, scoring, import/export, local/cloud persistence, and localStorage caching. Sidebar and hub actions call `handleExamSelect`, `handleDeleteExam`, and `goToExamHub`.

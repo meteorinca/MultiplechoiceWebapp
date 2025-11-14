@@ -1,9 +1,12 @@
 import type { Exam, Question } from '../types/question';
+import { isFillQuestion } from '../types/question';
 
 const OPTION_REGEX = /^([a-z])[).:\-]\s*(.+)$/i;
 const QUESTION_REGEX = /^question(?:\s+\d+)?\s*[:\-]\s*(.+)$/i;
 const TITLE_REGEX = /^title\s*[:\-]\s*(.+)$/i;
 const ANSWER_REGEX = /^answer\s*[:\-]\s*([a-z])/i;
+const ANSWER_TEXT_REGEX = /^answer\s*[:\-]\s*(.+)$/i;
+const TYPE_REGEX = /^type\s*[:\-]\s*(choice|fill)/i;
 const MAX_QUESTIONS = 1000;
 
 export type ParseResult =
@@ -69,7 +72,50 @@ export const parseExamText = (raw: string): ParseResult => {
     }
     index += 1;
 
-    const options: Question['options'] = [];
+    let questionKind: 'choice' | 'fill' = 'choice';
+
+    const potentialTypeLine = lines[index]?.trim();
+    if (potentialTypeLine) {
+      const typeMatch = potentialTypeLine.match(TYPE_REGEX);
+      if (typeMatch) {
+        questionKind = typeMatch[1].toLowerCase() as 'choice' | 'fill';
+        index += 1;
+      }
+    }
+
+    const skipInnerBlank = () => {
+      while (index < lines.length && !lines[index].trim()) {
+        index += 1;
+      }
+    };
+
+    if (questionKind === 'fill') {
+      skipInnerBlank();
+      if (index >= lines.length) {
+        return {
+          success: false,
+          message: `Missing "Answer:" line for the fill-in question that begins with "${entry}".`,
+        };
+      }
+      const answerLine = lines[index].trim();
+      const answerMatch = answerLine.match(ANSWER_TEXT_REGEX);
+      if (!answerMatch || !answerMatch[1].trim()) {
+        return {
+          success: false,
+          message: `Fill-in answers should look like "Answer: your text" near line ${index + 1}.`,
+        };
+      }
+      const correctAnswer = answerMatch[1].trim();
+      questions.push({
+        kind: 'fill',
+        entry,
+        correctAnswer,
+      });
+      index += 1;
+      continue;
+    }
+
+    const options: Array<{ label: string; text: string }> = [];
     while (index < lines.length) {
       const line = lines[index].trim();
       if (!line) {
@@ -152,12 +198,18 @@ export const serializeExam = (exam: Exam): string => {
 
   exam.questions.forEach((question, idx) => {
     lines.push(`Question ${idx + 1}: ${question.entry}`);
-    question.options.forEach((option) => {
-      lines.push(`${option.label}. ${option.text}`);
-    });
-    const correctOption = question.options[question.correctIndex];
-    const answerLabel = correctOption ? correctOption.label : '';
-    lines.push(`Answer: ${answerLabel}`);
+    if (isFillQuestion(question)) {
+      lines.push('Type: fill');
+      lines.push(`Answer: ${question.correctAnswer}`);
+    } else {
+      const choiceQuestion = question;
+      choiceQuestion.options.forEach((option) => {
+        lines.push(`${option.label}. ${option.text}`);
+      });
+      const correctOption = choiceQuestion.options[choiceQuestion.correctIndex];
+      const answerLabel = correctOption ? correctOption.label : '';
+      lines.push(`Answer: ${answerLabel}`);
+    }
     lines.push('');
   });
 

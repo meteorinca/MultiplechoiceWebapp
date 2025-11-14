@@ -7,9 +7,6 @@
     <link rel="apple-touch-icon" href="/assets/favicon.png" />
     <meta name="theme-color" content="#fef7f3" />
     <title>Omni Exam Studio</title>
-  </head>
-  <body class="bg-cream-50">
-    <div id="root"></div>
     <script>
       window.__firebaseConfigReady__ =
         window.__firebaseConfigReady__ ||
@@ -38,14 +35,9 @@
           }
         })();
     </script>
-    <script type="module">
-      const startApp = async () => {
-        if (window.__firebaseConfigReady__) {
-          await window.__firebaseConfigReady__;
-        }
-        await import('/src/main.tsx');
-      };
-      startApp();
-    </script>
+    <script type="module" src="/src/bootstrap.ts"></script>
+  </head>
+  <body class="bg-cream-50">
+    <div id="root"></div>
   </body>
 </html>

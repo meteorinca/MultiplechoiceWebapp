@@ -45,16 +45,28 @@ const hostingConfig = (() => {
 
 const firebaseConfig = envConfig ?? hostingConfig ?? null;
 
-let app: FirebaseApp | undefined;
-let db: Firestore | null = null;
+export let app: FirebaseApp | undefined;
+export let db: Firestore | null = null;
+let firebaseReady = false;
 
 if (firebaseConfig) {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
+  try {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    firebaseReady = true;
+  } catch (error) {
+    firebaseReady = false;
+    db = null;
+    // eslint-disable-next-line no-console
+    console.warn('Failed to initialize Firebase. Falling back to local data.', error);
+  }
 }
 
-export { app, db };
-export const isFirebaseConfigured = Boolean(db);
+export const isFirebaseConfigured = (): boolean => firebaseReady && Boolean(db);
+export const disableFirebase = (): void => {
+  firebaseReady = false;
+  db = null;
+};
 export const firebaseConfigSource = envConfig
   ? 'env'
   : hostingConfig

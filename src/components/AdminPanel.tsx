@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 import type { Exam } from '../types/question';
 import type { UserAccount } from '../types/user';
+import type { ExamAttemptLog, SessionLog } from '../utils/activity-log';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -18,6 +19,11 @@ interface AdminPanelProps {
   onDeleteAllExams: (userId: string) => void;
   onDeleteUser: (userId: string) => void;
   currentUserId: string;
+  sessionLogs: SessionLog[];
+  examAttemptLogs: ExamAttemptLog[];
+  isLoadingActivity: boolean;
+  activityError?: string | null;
+  onRefreshActivity: () => void;
 }
 
 const AdminPanel: FC<AdminPanelProps> = ({
@@ -36,10 +42,38 @@ const AdminPanel: FC<AdminPanelProps> = ({
   onDeleteAllExams,
   onDeleteUser,
   currentUserId,
+  sessionLogs,
+  examAttemptLogs,
+  isLoadingActivity,
+  activityError,
+  onRefreshActivity,
 }) => {
   if (!isOpen) {
     return null;
   }
+
+  const formatDate = (timestamp?: number) => {
+    if (!timestamp || Number.isNaN(timestamp)) {
+      return '—';
+    }
+    return new Date(timestamp).toLocaleString();
+  };
+
+  const formatDuration = (ms?: number) => {
+    if (!ms || ms <= 0) {
+      return '—';
+    }
+    const totalSeconds = Math.round(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes === 0) {
+      return `${seconds}s`;
+    }
+    return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  };
+
+  const topSessions = sessionLogs.slice(0, 6);
+  const topAttempts = examAttemptLogs.slice(0, 6);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(31,23,18,0.55)] px-4 py-8">
@@ -56,14 +90,22 @@ const AdminPanel: FC<AdminPanelProps> = ({
               View and tidy up stored accounts and exam libraries across Omni Exam Studio.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               className="rounded-2xl border border-cream-100 px-4 py-2 text-sm font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-500"
               onClick={onRefreshUsers}
               disabled={isLoadingUsers}
             >
-              {isLoadingUsers ? 'Refreshing…' : 'Refresh list'}
+              {isLoadingUsers ? 'Refreshing...' : 'Refresh users'}
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl border border-cream-100 px-4 py-2 text-sm font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-500"
+              onClick={onRefreshActivity}
+              disabled={isLoadingActivity}
+            >
+              {isLoadingActivity ? 'Loading logs...' : 'Refresh logs'}
             </button>
             <button
               type="button"
@@ -93,7 +135,7 @@ const AdminPanel: FC<AdminPanelProps> = ({
             <div className="flex-1 overflow-y-auto rounded-2xl bg-white/80">
               {isLoadingUsers ? (
                 <div className="flex h-40 items-center justify-center text-sm font-semibold text-cocoa-400">
-                  Loading users…
+                  Loading users...
                 </div>
               ) : users.length === 0 ? (
                 <div className="flex h-40 items-center justify-center text-sm font-semibold text-cocoa-400">
@@ -162,7 +204,7 @@ const AdminPanel: FC<AdminPanelProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-display text-xl font-semibold text-cocoa-600">
-                  Exams for {selectedUser ? selectedUser.displayName : '—'}
+                  Exams for {selectedUser ? selectedUser.displayName : 'Select a user'}
                 </h3>
                 <p className="text-xs font-medium text-cocoa-400">
                   {selectedUserExams.length}{' '}
@@ -194,7 +236,7 @@ const AdminPanel: FC<AdminPanelProps> = ({
                 </div>
               ) : isLoadingExams ? (
                 <div className="flex h-40 items-center justify-center text-sm font-semibold text-cocoa-400">
-                  Loading exams…
+                  Loading exams...
                 </div>
               ) : selectedUserExams.length === 0 ? (
                 <div className="flex h-40 items-center justify-center text-sm font-semibold text-cocoa-400">
@@ -227,6 +269,116 @@ const AdminPanel: FC<AdminPanelProps> = ({
             </div>
           </section>
         </div>
+
+        <section className="rounded-3xl border border-cream-100 bg-cream-50/60 p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="font-display text-xl font-semibold text-cocoa-600">
+                Activity timeline
+              </h3>
+              <p className="text-xs font-medium text-cocoa-400">
+                Track logins, time spent, and scored attempts across the workspace.
+              </p>
+            </div>
+            <span className="text-xs font-medium uppercase tracking-[0.2em] text-rose-400">
+              {sessionLogs.length + examAttemptLogs.length} events captured
+            </span>
+          </div>
+          {activityError && (
+            <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-500">
+              {activityError}
+            </p>
+          )}
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl bg-white/80 p-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-cocoa-400">
+                  Sessions
+                </h4>
+                <span className="text-xs font-medium text-cocoa-300">
+                  Showing recent {topSessions.length}
+                </span>
+              </div>
+              {isLoadingActivity ? (
+                <div className="mt-4 flex h-32 items-center justify-center text-sm font-semibold text-cocoa-400">
+                  Loading session data...
+                </div>
+              ) : topSessions.length === 0 ? (
+                <p className="mt-4 text-sm font-medium text-cocoa-400">
+                  No one has signed in yet.
+                </p>
+              ) : (
+                <ul className="mt-4 space-y-3">
+                  {topSessions.map((session) => (
+                    <li
+                      key={session.id}
+                      className="rounded-2xl border border-cream-100 bg-cream-50/50 px-4 py-3 text-sm"
+                    >
+                      <p className="font-display text-base font-semibold text-cocoa-600">
+                        {session.userName}{' '}
+                        <span className="text-xs uppercase tracking-[0.2em] text-cocoa-300">
+                          {session.userLogin}
+                        </span>
+                      </p>
+                      <p className="text-xs text-cocoa-400">
+                        Login: {formatDate(session.loginAt)}
+                      </p>
+                      <p className="text-xs text-cocoa-400">
+                        Logout:{' '}
+                        {session.logoutAt ? formatDate(session.logoutAt) : 'Still active'}
+                      </p>
+                      <p className="text-xs font-semibold text-cocoa-500">
+                        Duration: {formatDuration(session.durationMs)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-2xl bg-white/80 p-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-cocoa-400">
+                  Exam attempts
+                </h4>
+                <span className="text-xs font-medium text-cocoa-300">
+                  Showing recent {topAttempts.length}
+                </span>
+              </div>
+              {isLoadingActivity ? (
+                <div className="mt-4 flex h-32 items-center justify-center text-sm font-semibold text-cocoa-400">
+                  Loading attempts...
+                </div>
+              ) : topAttempts.length === 0 ? (
+                <p className="mt-4 text-sm font-medium text-cocoa-400">
+                  No exams have been finished yet.
+                </p>
+              ) : (
+                <ul className="mt-4 space-y-3">
+                  {topAttempts.map((attempt) => (
+                    <li
+                      key={attempt.id}
+                      className="rounded-2xl border border-cream-100 bg-cream-50/50 px-4 py-3 text-sm"
+                    >
+                      <p className="font-display text-base font-semibold text-cocoa-600">
+                        {attempt.examTitle}
+                      </p>
+                      <p className="text-xs text-cocoa-400">
+                        {attempt.userName} &middot; {attempt.userLogin}
+                      </p>
+                      <p className="text-xs text-cocoa-400">
+                        Finished: {formatDate(attempt.finishedAt)}
+                      </p>
+                      <p className="text-xs font-semibold text-cocoa-500">
+                        Score: {attempt.score}/{attempt.total} ({formatDuration(attempt.durationMs)})
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

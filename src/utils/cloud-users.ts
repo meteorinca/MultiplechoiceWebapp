@@ -7,7 +7,7 @@ import {
   setDoc,
   type FirestoreError,
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '../lib/firebase';
+import { db, disableFirebase, isFirebaseConfigured } from '../lib/firebase';
 import type { UserAccount, UserRole } from '../types/user';
 import {
   getAllPersistentItems,
@@ -57,8 +57,19 @@ const hashPassword = async (password: string): Promise<string> => {
   return password;
 };
 
+let firestoreHealthy = true;
+
+const canUseFirestore = () => firestoreHealthy && isFirebaseConfigured() && Boolean(db);
+
+const markFirestoreError = (error: unknown) => {
+  firestoreHealthy = false;
+  disableFirebase();
+  // eslint-disable-next-line no-console
+  console.warn('Firestore unavailable. Falling back to local storage.', error);
+};
+
 const getUsersCollection = () => {
-  if (!db) {
+  if (!canUseFirestore() || !db) {
     return null;
   }
   return collection(db, USERS_COLLECTION);
@@ -66,28 +77,38 @@ const getUsersCollection = () => {
 
 const getUserDocRef = (login: string) => {
   const usersCollection = getUsersCollection();
-  if (!usersCollection || !isFirebaseConfigured) {
+  if (!usersCollection) {
     return null;
   }
-  return doc(usersCollection, login);
+  try {
+    return doc(usersCollection, login);
+  } catch (error) {
+    markFirestoreError(error);
+    return null;
+  }
 };
 
 const fetchAllFirestoreUsers = async (): Promise<Record<string, StoredUserRecord>> => {
   const usersCollection = getUsersCollection();
-  if (!usersCollection || !isFirebaseConfigured) {
+  if (!usersCollection) {
     return {};
   }
-  const snapshot = await getDocs(usersCollection);
-  const result: Record<string, StoredUserRecord> = {};
-  snapshot.forEach((docSnapshot) => {
-    const data = docSnapshot.data() as StoredUserRecord;
-    result[docSnapshot.id] = {
-      ...data,
-      id: docSnapshot.id,
-      login: docSnapshot.id,
-    };
-  });
-  return result;
+  try {
+    const snapshot = await getDocs(usersCollection);
+    const result: Record<string, StoredUserRecord> = {};
+    snapshot.forEach((docSnapshot) => {
+      const data = docSnapshot.data() as StoredUserRecord;
+      result[docSnapshot.id] = {
+        ...data,
+        id: docSnapshot.id,
+        login: docSnapshot.id,
+      };
+    });
+    return result;
+  } catch (error) {
+    markFirestoreError(error);
+    return {};
+  }
 };
 
 const readLocalUsers = async (): Promise<Record<string, StoredUserRecord>> => {
@@ -104,14 +125,18 @@ const readUserRecord = async (
   const normalized = normalizeLogin(login);
   const docRef = getUserDocRef(normalized);
   if (docRef) {
-    const snapshot = await getDoc(docRef);
-    if (snapshot.exists()) {
-      const data = snapshot.data() as StoredUserRecord;
-      return {
-        ...data,
-        id: normalized,
-        login: normalized,
-      };
+    try {
+      const snapshot = await getDoc(docRef);
+      if (snapshot.exists()) {
+        const data = snapshot.data() as StoredUserRecord;
+        return {
+          ...data,
+          id: normalized,
+          login: normalized,
+        };
+      }
+    } catch (error) {
+      markFirestoreError(error);
     }
     return null;
   }
@@ -131,8 +156,12 @@ const persistUserRecord = async (
 ): Promise<void> => {
   const docRef = getUserDocRef(record.login);
   if (docRef) {
-    await setDoc(docRef, record, { merge: true });
-    return;
+    try {
+      await setDoc(docRef, record, { merge: true });
+      return;
+    } catch (error) {
+      markFirestoreError(error);
+    }
   }
 
   await setPersistentItem('users', record.login, record);
@@ -233,11 +262,13 @@ export const authenticateUser = async (
 };
 
 export const listUsers = async (): Promise<UserAccount[]> => {
-  if (isFirebaseConfigured) {
+  if (canUseFirestore()) {
     const users = await fetchAllFirestoreUsers();
-    return Object.values(users)
-      .map((record) => stripSensitive(record))
-      .sort((a, b) => a.createdAt - b.createdAt);
+    if (Object.keys(users).length > 0) {
+      return Object.values(users)
+        .map((record) => stripSensitive(record))
+        .sort((a, b) => a.createdAt - b.createdAt);
+    }
   }
 
   const localUsers = await readLocalUsers();
@@ -252,8 +283,12 @@ export const deleteUserAccount = async (login: string): Promise<void> => {
 
   const docRef = getUserDocRef(normalizedLogin);
   if (docRef) {
-    await deleteDoc(docRef);
-    return;
+    try {
+      await deleteDoc(docRef);
+      return;
+    } catch (error) {
+      markFirestoreError(error);
+    }
   }
 
   await removePersistentItem('users', normalizedLogin);
@@ -307,4 +342,4 @@ export const ensureAdminAccount = async (): Promise<UserAccount> => {
   return stripSensitive(adminRecord);
 };
 
-export const getIsDatabaseEnabled = (): boolean => true;
+export const getIsDatabaseEnabled = (): boolean => canUseFirestore();

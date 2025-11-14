@@ -5,6 +5,7 @@ export const defaultExam: Exam = {
   title: 'Latin Vocabulary Exam',
   questions: [
     {
+      kind: 'choice',
       entry: 'grammatica, grammaticae, f.',
       options: [
         { label: 'a', text: 'example' },
@@ -15,6 +16,7 @@ export const defaultExam: Exam = {
       correctIndex: 3,
     },
     {
+      kind: 'choice',
       entry: 'discipula, discipulae, f.',
       options: [
         { label: 'a', text: 'teacher' },
@@ -25,6 +27,7 @@ export const defaultExam: Exam = {
       correctIndex: 3,
     },
     {
+      kind: 'choice',
       entry: 'poeta, poetae, m.',
       options: [
         { label: 'a', text: 'sailor' },
@@ -35,6 +38,7 @@ export const defaultExam: Exam = {
       correctIndex: 3,
     },
     {
+      kind: 'choice',
       entry: 'patria, patriae, f.',
       options: [
         { label: 'a', text: 'daughter' },
@@ -45,6 +49,7 @@ export const defaultExam: Exam = {
       correctIndex: 3,
     },
     {
+      kind: 'choice',
       entry: 'puella, puellae, f.',
       options: [
         { label: 'a', text: 'maid' },
@@ -55,6 +60,7 @@ export const defaultExam: Exam = {
       correctIndex: 3,
     },
     {
+      kind: 'choice',
       entry: 'insula, insulae, f.',
       options: [
         { label: 'a', text: 'street' },
@@ -65,6 +71,7 @@ export const defaultExam: Exam = {
       correctIndex: 3,
     },
     {
+      kind: 'choice',
       entry: 'fabula, fabulae, f.',
       options: [
         { label: 'a', text: 'spear' },
@@ -75,6 +82,7 @@ export const defaultExam: Exam = {
       correctIndex: 3,
     },
     {
+      kind: 'choice',
       entry: 'agricola, agricolae, m.',
       options: [
         { label: 'a', text: 'general' },
@@ -83,6 +91,11 @@ export const defaultExam: Exam = {
         { label: 'd', text: 'farmer' },
       ],
       correctIndex: 3,
+    },
+    {
+      kind: 'fill',
+      entry: 'Fill in the blank: "Roma in Italia est" translates to ____.',
+      correctAnswer: 'Rome is in Italy',
     },
   ],
 };

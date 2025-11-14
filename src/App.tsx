@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { ChangeEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import ExamHeader from './components/ExamHeader';
 import QuestionOption from './components/QuestionOption';
+import FillInResponse from './components/FillInResponse';
 import FeedbackPanel from './components/FeedbackPanel';
 import NavigationControls from './components/NavigationControls';
 import ExamSidebar from './components/ExamSidebar';
@@ -13,6 +14,7 @@ import { defaultExam, defaultExams } from './data/exams';
 import useMobile from './hooks/use-mobile';
 import { parseExamText, serializeExam } from './utils/exam-io';
 import type { Exam, Question, Selection } from './types/question';
+import { isChoiceQuestion, isFillQuestion } from './types/question';
 import type { UserAccount } from './types/user';
 import {
   deleteAllUserExams,
@@ -32,8 +34,17 @@ import {
   UserAuthError,
 } from './utils/cloud-users';
 import { requestPersistentStorageAccess } from './utils/persistent-store';
+import {
+  endSessionLog,
+  getExamAttemptLogs,
+  getSessionLogs,
+  recordExamAttempt,
+  startSessionLog,
+} from './utils/activity-log';
+import type { ExamAttemptLog, SessionLog } from './utils/activity-log';
 
 const SESSION_STORAGE_KEY = 'omniExamStudio.session';
+const ADMIN_SEEDED_EXAM_ID = 'admin-starter-exam';
 
 type SessionExam = {
   id: string;
@@ -59,9 +70,12 @@ const prepareSessionQuestions = (
     : exam.questions.slice();
 
   return questionPool.map((question) => {
-    if (!options.shuffleAnswers) {
+    if (!isChoiceQuestion(question) || !options.shuffleAnswers) {
+      if (!isChoiceQuestion(question)) {
+        return { ...question };
+      }
       return {
-        entry: question.entry,
+        ...question,
         options: question.options.map((option) => ({ ...option })),
         correctIndex: question.correctIndex,
       };
@@ -85,13 +99,16 @@ const prepareSessionQuestions = (
     );
 
     return {
-      entry: question.entry,
+      ...question,
       options: shuffledOptions.map(({ originalIndex, ...option }) => option),
       correctIndex:
         newCorrectIndex >= 0 ? newCorrectIndex : question.correctIndex,
     };
   });
 };
+
+const normalizeTextAnswer = (value: string): string =>
+  value.trim().toLowerCase().replace(/\s+/g, ' ');
 
 type AlertState =
   | { text: string; type: 'success' | 'error' | 'info' }
@@ -172,6 +189,11 @@ const App = () => {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const hasSeededCloudRef = useRef<Record<string, boolean>>({});
   const localExamsLoadedRef = useRef<Record<string, boolean>>({});
+  const activeAttemptRef = useRef<{
+    examId: string;
+    title: string;
+    startedAt: number;
+  } | null>(null);
   const [isAdminConsoleOpen, setIsAdminConsoleOpen] = useState(false);
   const [adminUsers, setAdminUsers] = useState<UserAccount[]>([]);
   const [isAdminUsersLoading, setIsAdminUsersLoading] = useState(false);
@@ -180,13 +202,37 @@ const App = () => {
   const [adminSelectedUserExams, setAdminSelectedUserExams] = useState<Exam[]>([]);
   const [isAdminExamsLoading, setIsAdminExamsLoading] = useState(false);
   const [adminExamsError, setAdminExamsError] = useState<string | null>(null);
+  const [fillDrafts, setFillDrafts] = useState<Record<number, string>>({});
+  const [sessionLogId, setSessionLogId] = useState<string | null>(null);
+  const [sessionLogs, setSessionLogs] = useState<SessionLog[]>([]);
+  const [examAttemptLogs, setExamAttemptLogs] = useState<ExamAttemptLog[]>([]);
+  const [isActivityLoading, setIsActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
 
   useEffect(() => {
     void requestPersistentStorageAccess();
-    void ensureAdminAccount().catch((error) => {
-      // eslint-disable-next-line no-console
-      console.error('Failed to ensure admin account.', error);
-    });
+    const bootstrapAdminAccount = async () => {
+      try {
+        const adminAccount = await ensureAdminAccount();
+        const adminExams = await fetchUserExamsSnapshot(adminAccount.id);
+        const alreadySeeded = adminExams.some(
+          (exam) => exam.id === ADMIN_SEEDED_EXAM_ID,
+        );
+        if (!alreadySeeded) {
+          const adminStarterExam: Exam = {
+            ...defaultExam,
+            id: ADMIN_SEEDED_EXAM_ID,
+            title: 'Omni Starter Exam',
+            ownerId: adminAccount.id,
+          };
+          await upsertCloudExam(adminAccount.id, adminStarterExam);
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to ensure admin workspace.', error);
+      }
+    };
+    void bootstrapAdminAccount();
   }, []);
 
   useEffect(() => {
@@ -200,6 +246,15 @@ const App = () => {
         const parsed = JSON.parse(payload) as UserAccount;
         if (parsed?.id) {
           setUser(parsed);
+          void (async () => {
+            try {
+              const session = await startSessionLog(parsed);
+              setSessionLogId(session.id);
+            } catch (error) {
+              // eslint-disable-next-line no-console
+              console.error('Failed to log restored session.', error);
+            }
+          })();
         }
       }
     } catch {
@@ -246,7 +301,7 @@ const App = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!user || isFirebaseConfigured) {
+    if (!user || isFirebaseConfigured()) {
       return;
     }
 
@@ -293,7 +348,7 @@ const App = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!user || isFirebaseConfigured) {
+    if (!user || isFirebaseConfigured()) {
       return;
     }
     if (!localExamsLoadedRef.current[user.id]) {
@@ -303,7 +358,7 @@ const App = () => {
   }, [user, exams]);
 
   useEffect(() => {
-    if (!user || !isFirebaseConfigured) {
+    if (!user || !isFirebaseConfigured()) {
       return;
     }
 
@@ -416,6 +471,13 @@ const App = () => {
         });
       }
       setUser(account);
+      try {
+        const session = await startSessionLog(account);
+        setSessionLogId(session.id);
+      } catch (logError) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to record login session.', logError);
+      }
       resetAuthState();
       setAlert({
         text:
@@ -436,6 +498,17 @@ const App = () => {
   };
 
   const handleSignOut = () => {
+    void (async () => {
+      if (sessionLogId) {
+        try {
+          await endSessionLog(sessionLogId);
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to close session log.', error);
+        }
+      }
+      setSessionLogId(null);
+    })();
     setUser(null);
     resetAuthState();
     setAuthMode('login');
@@ -446,6 +519,7 @@ const App = () => {
     setAdminUsers([]);
     setAdminUsersError(null);
     setAdminExamsError(null);
+    activeAttemptRef.current = null;
     setAlert({
       text: 'Signed out safely.',
       type: 'info',
@@ -477,6 +551,25 @@ const App = () => {
     }
   }, []);
 
+  const refreshActivityLogs = useCallback(async () => {
+    setIsActivityLoading(true);
+    setActivityError(null);
+    try {
+      const [sessions, attempts] = await Promise.all([
+        getSessionLogs(),
+        getExamAttemptLogs(),
+      ]);
+      setSessionLogs(sessions);
+      setExamAttemptLogs(attempts);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to load activity logs.', error);
+      setActivityError('Unable to load activity right now.');
+    } finally {
+      setIsActivityLoading(false);
+    }
+  }, []);
+
   const loadAdminUserExams = useCallback(async (targetUserId: string) => {
     setIsAdminExamsLoading(true);
     setAdminExamsError(null);
@@ -504,7 +597,8 @@ const App = () => {
     setAdminSelectedUserExams([]);
     setAdminExamsError(null);
     void refreshAdminUsers();
-  }, [refreshAdminUsers]);
+    void refreshActivityLogs();
+  }, [refreshAdminUsers, refreshActivityLogs]);
 
   const closeAdminConsole = useCallback(() => {
     setIsAdminConsoleOpen(false);
@@ -647,11 +741,13 @@ const App = () => {
       setSelections([]);
       setCurrentIndex(0);
       setIsSummaryVisible(false);
+      setFillDrafts({});
       return;
     }
     setSelections(Array(sessionExam.questions.length).fill(null));
     setCurrentIndex(0);
     setIsSummaryVisible(false);
+    setFillDrafts({});
   }, [sessionExam?.id, isExamActive]);
 
   const totalQuestions = sessionExam?.questions.length ?? 0;
@@ -662,6 +758,7 @@ const App = () => {
   const hasQuestions = Boolean(
     isExamActive && sessionExam && totalQuestions > 0 && currentQuestion,
   );
+  const currentFillDraft = fillDrafts[currentIndex] ?? '';
 
   const score = useMemo(() => {
     return selections.reduce((count, selection) => {
@@ -695,6 +792,11 @@ const App = () => {
         shuffleQuestions,
         shuffleAnswers,
       });
+      activeAttemptRef.current = {
+        examId: selectedExam.id,
+        title: selectedExam.title,
+        startedAt: Date.now(),
+      };
       setSessionExam({
         id: selectedExam.id,
         title: selectedExam.title,
@@ -704,9 +806,32 @@ const App = () => {
     [exams, shuffleAnswers, shuffleQuestions],
   );
 
-  const goToExamHub = () => {
+  const selectExamCard = (examId: string) => {
+    const exists = exams.some((exam) => exam.id === examId);
+    if (!exists) {
+      return;
+    }
+    setActiveExamId(examId);
+  };
+
+  const handleExamCardKeyDown = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    examId: string,
+  ) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectExamCard(examId);
+    }
+  };
+
+  const goToExamHub = (options?: { preserveSelection?: boolean }) => {
+    const shouldPreserve = options?.preserveSelection ?? true;
+    const fallbackExamId = shouldPreserve ? sessionExam?.id ?? activeExamId : '';
+    const nextExamId =
+      fallbackExamId && exams.some((exam) => exam.id === fallbackExamId)
+        ? fallbackExamId
+        : '';
     setIsExamActive(false);
-    setActiveExamId('');
     setSessionExam(null);
     setSidebarOpen(false);
     setCurrentIndex(0);
@@ -714,17 +839,67 @@ const App = () => {
     setShowHelpGuide(false);
     setIsMenuOpen(false);
     setIsSummaryVisible(false);
+    setActiveExamId(nextExamId);
+    activeAttemptRef.current = null;
   };
 
   const handleSelect = (choiceIndex: number) => {
     if (!isExamActive || !currentQuestion || isSummaryVisible) {
       return;
     }
+    if (!isChoiceQuestion(currentQuestion)) {
+      return;
+    }
     setSelections((prev) => {
       const next = [...prev];
       next[currentIndex] = {
+        kind: 'choice',
         optionIndex: choiceIndex,
         isCorrect: choiceIndex === currentQuestion.correctIndex,
+      };
+      return next;
+    });
+  };
+
+  const handleFillChange = (value: string) => {
+    if (!isExamActive || !currentQuestion || isSummaryVisible) {
+      return;
+    }
+    if (!isFillQuestion(currentQuestion)) {
+      return;
+    }
+    setFillDrafts((prev) => ({
+      ...prev,
+      [currentIndex]: value,
+    }));
+  };
+
+  const handleFillSubmit = () => {
+    if (
+      !isExamActive ||
+      !currentQuestion ||
+      isSummaryVisible ||
+      !isFillQuestion(currentQuestion)
+    ) {
+      return;
+    }
+    const response = (fillDrafts[currentIndex] ?? '').trim();
+    if (!response) {
+      setAlert({
+        text: 'Type an answer before checking.',
+        type: 'info',
+      });
+      return;
+    }
+    const isCorrect =
+      normalizeTextAnswer(response) ===
+      normalizeTextAnswer(currentQuestion.correctAnswer);
+    setSelections((prev) => {
+      const next = [...prev];
+      next[currentIndex] = {
+        kind: 'fill',
+        response,
+        isCorrect,
       };
       return next;
     });
@@ -745,9 +920,38 @@ const App = () => {
   };
 
   const handleFinishExam = () => {
-    if (!sessionExam) {
+    if (!sessionExam || !user) {
       return;
     }
+    const finishedAt = Date.now();
+    const attemptContext =
+      activeAttemptRef.current && activeAttemptRef.current.examId === sessionExam.id
+        ? activeAttemptRef.current
+        : {
+            examId: sessionExam.id,
+            title: sessionExam.title,
+            startedAt: finishedAt,
+          };
+    void (async () => {
+      try {
+        await recordExamAttempt({
+          sessionId: sessionLogId,
+          user,
+          exam: {
+            id: attemptContext.examId,
+            title: attemptContext.title,
+          },
+          startedAt: attemptContext.startedAt,
+          finishedAt,
+          score,
+          total: sessionExam.questions.length,
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to log exam attempt.', error);
+      }
+    })();
+    activeAttemptRef.current = null;
     setIsSummaryVisible(true);
     setSidebarOpen(false);
   };
@@ -791,7 +995,7 @@ const App = () => {
     setExams((prev) => prev.filter((exam) => exam.id !== examId));
 
     if (examId === activeExamId || sessionExam?.id === examId) {
-      goToExamHub();
+      goToExamHub({ preserveSelection: false });
     }
 
     setAlert({
@@ -909,7 +1113,22 @@ a. girl
 b. boy
 c. child
 d. pull
-Answer: a`;
+Answer: a
+
+Question 2: Translate "salve"
+Type: fill
+Answer: hello`;
+
+  const multipleChoiceExample = `Question: Identify the correct translation for "puella".
+a. boy
+b. girl
+c. book
+d. town
+Answer: b`;
+
+  const fillInBlankExample = `Question: Translate "salve".
+Type: fill
+Answer: hello`;
 
   const showComingSoon = (feature: string) => {
     setAlert({ text: `${feature} is coming soon.`, type: 'info' });
@@ -1059,9 +1278,6 @@ Answer: a`;
               )}
             </p>
 
-            <p className="mt-4 text-center text-xs text-cocoa-300">
-              Credentials are stored securely in our internal datastore.
-            </p>
           </div>
         </div>
       </div>
@@ -1227,7 +1443,7 @@ Answer: a`;
                 <button
                   type="button"
                   className="rounded-full border border-cream-100 bg-cream-50 px-4 py-2 text-sm font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-400"
-                  onClick={goToExamHub}
+                  onClick={() => goToExamHub()}
                 >
                   Back to exam hub
                 </button>
@@ -1269,20 +1485,32 @@ Answer: a`;
                     </section>
 
                     <div className="mt-6 space-y-4">
-                      {currentQuestion!.options.map((option, index) => (
-                        <QuestionOption
-                          key={`${currentQuestion!.entry}-${option.label}`}
-                          option={option}
-                          isSelected={
-                            selections[currentIndex]?.optionIndex === index
-                          }
-                          isCorrectChoice={
-                            index === currentQuestion!.correctIndex
-                          }
-                          showStatus={showStatus}
-                          onSelect={() => handleSelect(index)}
+                      {isChoiceQuestion(currentQuestion!) ? (
+                        currentQuestion!.options.map((option, index) => (
+                          <QuestionOption
+                            key={`${currentQuestion!.entry}-${option.label}`}
+                            option={option}
+                            isSelected={
+                              selections[currentIndex]?.kind === 'choice' &&
+                              selections[currentIndex]?.optionIndex === index
+                            }
+                            isCorrectChoice={
+                              index === currentQuestion!.correctIndex
+                            }
+                            showStatus={showStatus}
+                            onSelect={() => handleSelect(index)}
+                          />
+                        ))
+                      ) : (
+                        <FillInResponse
+                          prompt={currentQuestion!.entry}
+                          value={currentFillDraft}
+                          onChange={handleFillChange}
+                          onSubmit={handleFillSubmit}
+                          disabled={!isExamActive}
+                          isLocked={Boolean(selections[currentIndex])}
                         />
-                      ))}
+                      )}
                     </div>
 
                     <FeedbackPanel
@@ -1334,10 +1562,13 @@ Answer: a`;
                     : 'border-transparent bg-cream-50/70 shadow-card hover:-translate-y-1 hover:shadow-2xl';
                   return (
                     <div key={exam.id} className="group relative">
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-pressed={isSelectedCard}
                         className={`flex w-full flex-col overflow-hidden rounded-[36px] border px-8 py-10 text-left transition-transform duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2 ${cardClasses}`}
-                        onClick={() => startExam(exam.id)}
+                        onClick={() => selectExamCard(exam.id)}
+                        onKeyDown={(event) => handleExamCardKeyDown(event, exam.id)}
                       >
                         <span className="text-sm font-semibold uppercase tracking-[0.3em] text-rose-400">
                           Exam
@@ -1351,7 +1582,28 @@ Answer: a`;
                             ? 'question'
                             : 'questions'}
                         </p>
-                      </button>
+                        <div className="mt-8 flex flex-wrap items-center gap-3 text-sm">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                              isSelectedCard
+                                ? 'bg-white/90 text-rose-500'
+                                : 'bg-white/60 text-cocoa-300'
+                            }`}
+                          >
+                            {isSelectedCard ? 'Selected for export' : 'Click to select'}
+                          </span>
+                          <button
+                            type="button"
+                            className="rounded-full border border-cream-200 bg-white/70 px-4 py-2 text-xs font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-500"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startExam(exam.id);
+                            }}
+                          >
+                            Start practice
+                          </button>
+                        </div>
+                      </div>
                       <button
                         type="button"
                         aria-label={`Delete ${exam.title}`}
@@ -1397,7 +1649,20 @@ Answer: a`;
                 >
                   Export current exam (.txt)
                 </button>
+                <button
+                  type="button"
+                  className="rounded-2xl border border-cream-100 px-5 py-3 text-sm font-semibold text-cocoa-400 transition hover:border-rose-200 hover:text-rose-500"
+                  onClick={() => setShowHelpGuide((prev) => !prev)}
+                >
+                  {showHelpGuide ? 'Hide format guide' : 'View format guide'}
+                </button>
               </div>
+
+              <p className="mt-3 text-xs font-medium text-cocoa-400">
+                {activeExam
+                  ? `Selected exam: ${activeExam.title}`
+                  : 'Select an exam above to enable exporting.'}
+              </p>
 
               <div className="mt-6 flex flex-wrap items-center gap-4 text-sm">
                 <label className="flex items-center gap-2 font-semibold text-cocoa-500">
@@ -1430,10 +1695,10 @@ Answer: a`;
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="font-display text-xl font-semibold text-rose-500">
-                    Import or Export
+                    Plain-text exam format guide
                   </h3>
                   <p className="text-sm text-cocoa-400">
-                    Use a plain-text file to add new exams or share the current one.
+                    Follow these patterns to build imports for multiple choice and fill-in responses.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 sm:items-end">
@@ -1462,9 +1727,29 @@ Answer: a`;
                   </button>
                 </div>
               </div>
-              <div className="mt-4 rounded-2xl bg-white/80 p-4 text-sm text-cocoa-400">
+              <div className="mt-6 grid gap-5 text-sm text-cocoa-500 md:grid-cols-2">
+                <article className="rounded-2xl bg-white/80 p-4 shadow-card">
+                  <h4 className="font-semibold text-cocoa-600">Multiple choice</h4>
+                  <p className="mt-2 text-xs">
+                    Use lettered answer options (a.–d.) and finish with an <code>Answer:</code> line that matches one of the option letters.
+                  </p>
+                  <pre className="mt-3 overflow-x-auto rounded-2xl bg-cream-50 p-4 font-mono text-xs leading-6 text-cocoa-600">
+                    {multipleChoiceExample}
+                  </pre>
+                </article>
+                <article className="rounded-2xl bg-white/80 p-4 shadow-card">
+                  <h4 className="font-semibold text-cocoa-600">Fill in the blank</h4>
+                  <p className="mt-2 text-xs">
+                    Add a <code>Type: fill</code> line under the prompt so the importer treats the question as open response.
+                  </p>
+                  <pre className="mt-3 overflow-x-auto rounded-2xl bg-cream-50 p-4 font-mono text-xs leading-6 text-cocoa-600">
+                    {fillInBlankExample}
+                  </pre>
+                </article>
+              </div>
+              <div className="mt-6 rounded-2xl bg-white/80 p-4 text-sm text-cocoa-400">
                 <p className="font-semibold text-cocoa-500">
-                  Template (repeat the Question block up to 1000 times):
+                  Full sample (title + both question types):
                 </p>
                 <pre className="mt-3 overflow-x-auto rounded-2xl bg-cream-50 p-4 font-mono text-xs leading-6 text-cocoa-500">
                   {instructionTemplate}
@@ -1511,6 +1796,11 @@ Answer: a`;
             onDeleteAllExams={handleAdminDeleteAllExams}
             onDeleteUser={handleAdminDeleteUser}
             currentUserId={user.id}
+            sessionLogs={sessionLogs}
+            examAttemptLogs={examAttemptLogs}
+            isLoadingActivity={isActivityLoading}
+            activityError={activityError}
+            onRefreshActivity={refreshActivityLogs}
           />
         )}
       </div>
