@@ -9,6 +9,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 - Fill-in-the-blank prompts alongside multiple-choice questions, all graded instantly.
 - Built-in admin console that logs every sign-in and graded attempt so you always know who practiced, when, and for how long.
 - Optional shuffle toggles for question order and answer order before each practice session.
+- Printable PDF exports that let you shuffle the printed order, decide if the answer key is attached, and auto-generate a word bank from fill-in answers.
 - Math rendering toggle so editors can opt into KaTeX parsing (wrap inline math with `$$...$$`).
 - Inline feedback (stars/frowns), real-time scoring, and forward/backward navigation.
 - Completion summary with score, percentage, and quick actions to retake or jump back to the exam hub.
@@ -73,6 +74,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 - **Math**: Enable **Render math ($$...$$)** when you import calculus-heavy content to display inline formulas via KaTeX.
 - **Fill-in-the-blank**: Add `Type: fill` + a free-form `Answer:` line to ask for typed responses—grading ignores case and double spaces.
 - **Export**: Click **Export current exam (.txt)** to download the active exam in the same text format.
+- **Printable PDF**: Use **Printable PDF** in the format guide to create a ready-to-print packet, and toggle the printable options (question shuffle, answer key, and word bank) right above the button before exporting.
 - **Complete**: Answer the final question and hit **Finish exam** to view the scorecard with retake and back-to-hub shortcuts.
 - **Persistence**: Exams sync to Firebase Cloud Firestore (when configured) and fall back to the localStorage key `omniExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
 

@@ -5,16 +5,19 @@ export type ChoiceOption = {
 
 export type QuestionKind = 'choice' | 'fill';
 
-export type ChoiceQuestion = {
-  kind?: 'choice';
+type QuestionBase = {
   entry: string;
+  imageUrl?: string;
+};
+
+export type ChoiceQuestion = QuestionBase & {
+  kind?: 'choice';
   options: ChoiceOption[];
   correctIndex: number;
 };
 
-export type FillQuestion = {
+export type FillQuestion = QuestionBase & {
   kind: 'fill';
-  entry: string;
   correctAnswer: string;
 };
 

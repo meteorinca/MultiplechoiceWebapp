@@ -1,4 +1,4 @@
-import type { Exam, Question } from '../types/question';
+import type { Exam, Question, QuestionKind } from '../types/question';
 import { isFillQuestion } from '../types/question';
 
 const OPTION_REGEX = /^([a-z])[).:\-]\s*(.+)$/i;
@@ -7,6 +7,7 @@ const TITLE_REGEX = /^title\s*[:\-]\s*(.+)$/i;
 const ANSWER_REGEX = /^answer\s*[:\-]\s*([a-z])/i;
 const ANSWER_TEXT_REGEX = /^answer\s*[:\-]\s*(.+)$/i;
 const TYPE_REGEX = /^type\s*[:\-]\s*(choice|fill)/i;
+const IMAGE_REGEX = /^image\s*[:\-]\s*(.+)$/i;
 const MAX_QUESTIONS = 1000;
 
 export type ParseResult =
@@ -72,16 +73,38 @@ export const parseExamText = (raw: string): ParseResult => {
     }
     index += 1;
 
-    let questionKind: 'choice' | 'fill' = 'choice';
+    let questionKind: QuestionKind | null = null;
+    let imageUrl: string | undefined;
 
-    const potentialTypeLine = lines[index]?.trim();
-    if (potentialTypeLine) {
-      const typeMatch = potentialTypeLine.match(TYPE_REGEX);
-      if (typeMatch) {
-        questionKind = typeMatch[1].toLowerCase() as 'choice' | 'fill';
-        index += 1;
+    const consumeQuestionMetadata = () => {
+      while (index < lines.length) {
+        const candidate = lines[index]?.trim();
+        if (candidate === undefined) {
+          break;
+        }
+        if (!candidate) {
+          index += 1;
+          continue;
+        }
+        const typeMatch = candidate.match(TYPE_REGEX);
+        if (typeMatch) {
+          questionKind = typeMatch[1].toLowerCase() as QuestionKind;
+          index += 1;
+          continue;
+        }
+        const imageMatch = candidate.match(IMAGE_REGEX);
+        if (imageMatch) {
+          imageUrl = imageMatch[1].trim();
+          index += 1;
+          continue;
+        }
+        break;
       }
-    }
+    };
+
+    consumeQuestionMetadata();
+    const resolvedKind: QuestionKind =
+      questionKind === 'fill' ? 'fill' : 'choice';
 
     const skipInnerBlank = () => {
       while (index < lines.length && !lines[index].trim()) {
@@ -89,7 +112,7 @@ export const parseExamText = (raw: string): ParseResult => {
       }
     };
 
-    if (questionKind === 'fill') {
+    if (resolvedKind === 'fill') {
       skipInnerBlank();
       if (index >= lines.length) {
         return {
@@ -110,6 +133,7 @@ export const parseExamText = (raw: string): ParseResult => {
         kind: 'fill',
         entry,
         correctAnswer,
+        imageUrl,
       });
       index += 1;
       continue;
@@ -172,7 +196,7 @@ export const parseExamText = (raw: string): ParseResult => {
     }
     index += 1;
 
-    questions.push({ entry, options, correctIndex });
+    questions.push({ entry, options, correctIndex, imageUrl });
     if (questions.length > MAX_QUESTIONS) {
       return {
         success: false,
@@ -198,6 +222,9 @@ export const serializeExam = (exam: Exam): string => {
 
   exam.questions.forEach((question, idx) => {
     lines.push(`Question ${idx + 1}: ${question.entry}`);
+    if (question.imageUrl) {
+      lines.push(`Image: ${question.imageUrl}`);
+    }
     if (isFillQuestion(question)) {
       lines.push('Type: fill');
       lines.push(`Answer: ${question.correctAnswer}`);

@@ -15,39 +15,38 @@ const FeedbackPanel: FC<FeedbackPanelProps> = ({ selection, question }) => {
 
   const isCorrect = selection.isCorrect;
 
+  const containerClasses = `mt-4 inline-flex max-w-full flex-wrap items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold shadow-sm ${
+    isCorrect
+      ? 'border-mint-200 bg-mint-50/80 text-mint-700'
+      : 'border-rose-200 bg-rose-50/80 text-rose-600'
+  }`;
+  const icon = isCorrect ? '✓' : '!';
+
   if (isFillQuestion(question)) {
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        className={`mt-8 flex flex-col gap-1 rounded-2xl px-5 py-4 text-base font-semibold ${
-          isCorrect
-            ? 'bg-mint-50 text-mint-600'
-            : 'bg-cream-100/60 text-rose-500'
-        }`}
-      >
-        <span className="text-2xl" aria-hidden>
-          {isCorrect ? '\u2605' : ':('}
+      <div role="status" aria-live="polite" className={containerClasses}>
+        <span aria-hidden className="text-base">
+          {icon}
         </span>
         {isCorrect ? (
-          <span>Perfect! You nailed the blank.</span>
+          <span>Correct</span>
         ) : (
-          <div className="flex flex-col gap-1 text-sm font-medium text-cocoa-500">
-            <span className="text-rose-500">Not quite right.</span>
-            <span className="text-cocoa-400">
-              Your answer: "
-              {selection.kind === 'fill' ? selection.response : ''}
-              "
-            </span>
-            <span className="text-cocoa-500">
-              Correct answer:&nbsp;
+          <>
+            <span>Not quite right.</span>
+            <span className="text-xs font-medium text-cocoa-500">
+              Correct:&nbsp;
               <MathText
                 text={question.correctAnswer}
                 displayMode="inline"
                 className="inline text-inherit"
               />
             </span>
-          </div>
+            {selection.kind === 'fill' && (
+              <span className="text-xs font-medium text-cocoa-400">
+                Yours: "{selection.response}"
+              </span>
+            )}
+          </>
         )}
       </div>
     );
@@ -56,29 +55,21 @@ const FeedbackPanel: FC<FeedbackPanelProps> = ({ selection, question }) => {
   const correctOption = question.options[question.correctIndex];
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={`mt-8 flex items-center gap-3 rounded-2xl px-5 py-4 text-base font-semibold ${
-        isCorrect
-          ? 'bg-mint-50 text-mint-600'
-          : 'bg-cream-100/60 text-rose-500'
-      }`}
-    >
-      <span className="text-2xl" aria-hidden>
-        {isCorrect ? '\u2605' : ':('}
+    <div role="status" aria-live="polite" className={containerClasses}>
+      <span aria-hidden className="text-base">
+        {icon}
       </span>
       {isCorrect ? (
-        <span>Correct!</span>
+        <span>Correct</span>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <span>Nope. Right answer: {correctOption.label}.</span>
+        <>
+          <span>Right answer: {correctOption.label}.</span>
           <MathText
             text={correctOption.text}
             displayMode="inline"
             className="inline text-inherit"
           />
-        </div>
+        </>
       )}
     </div>
   );

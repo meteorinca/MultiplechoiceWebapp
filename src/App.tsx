@@ -42,6 +42,7 @@ import {
   startSessionLog,
 } from './utils/activity-log';
 import type { ExamAttemptLog, SessionLog } from './utils/activity-log';
+import { jsPDF } from 'jspdf';
 
 const SESSION_STORAGE_KEY = 'omniExamStudio.session';
 const ADMIN_SEEDED_EXAM_ID = 'admin-starter-exam';
@@ -184,6 +185,9 @@ const App = () => {
   const [sessionExam, setSessionExam] = useState<SessionExam | null>(null);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [shuffleAnswers, setShuffleAnswers] = useState(false);
+  const [pdfShuffleQuestions, setPdfShuffleQuestions] = useState(false);
+  const [pdfIncludeAnswerKey, setPdfIncludeAnswerKey] = useState(true);
+  const [pdfIncludeWordBank, setPdfIncludeWordBank] = useState(true);
   const [isSummaryVisible, setIsSummaryVisible] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -208,6 +212,7 @@ const App = () => {
   const [examAttemptLogs, setExamAttemptLogs] = useState<ExamAttemptLog[]>([]);
   const [isActivityLoading, setIsActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
 
   useEffect(() => {
     void requestPersistentStorageAccess();
@@ -843,68 +848,6 @@ const App = () => {
     activeAttemptRef.current = null;
   };
 
-  const handleSelect = (choiceIndex: number) => {
-    if (!isExamActive || !currentQuestion || isSummaryVisible) {
-      return;
-    }
-    if (!isChoiceQuestion(currentQuestion)) {
-      return;
-    }
-    setSelections((prev) => {
-      const next = [...prev];
-      next[currentIndex] = {
-        kind: 'choice',
-        optionIndex: choiceIndex,
-        isCorrect: choiceIndex === currentQuestion.correctIndex,
-      };
-      return next;
-    });
-  };
-
-  const handleFillChange = (value: string) => {
-    if (!isExamActive || !currentQuestion || isSummaryVisible) {
-      return;
-    }
-    if (!isFillQuestion(currentQuestion)) {
-      return;
-    }
-    setFillDrafts((prev) => ({
-      ...prev,
-      [currentIndex]: value,
-    }));
-  };
-
-  const handleFillSubmit = () => {
-    if (
-      !isExamActive ||
-      !currentQuestion ||
-      isSummaryVisible ||
-      !isFillQuestion(currentQuestion)
-    ) {
-      return;
-    }
-    const response = (fillDrafts[currentIndex] ?? '').trim();
-    if (!response) {
-      setAlert({
-        text: 'Type an answer before checking.',
-        type: 'info',
-      });
-      return;
-    }
-    const isCorrect =
-      normalizeTextAnswer(response) ===
-      normalizeTextAnswer(currentQuestion.correctAnswer);
-    setSelections((prev) => {
-      const next = [...prev];
-      next[currentIndex] = {
-        kind: 'fill',
-        response,
-        isCorrect,
-      };
-      return next;
-    });
-  };
-
   const goPrev = () => {
     if (isSummaryVisible) {
       return;
@@ -954,6 +897,89 @@ const App = () => {
     activeAttemptRef.current = null;
     setIsSummaryVisible(true);
     setSidebarOpen(false);
+  };
+
+  const handleSelect = (choiceIndex: number) => {
+    if (!isExamActive || !currentQuestion || isSummaryVisible) {
+      return;
+    }
+    if (!isChoiceQuestion(currentQuestion)) {
+      return;
+    }
+    const isCorrectChoice = choiceIndex === currentQuestion.correctIndex;
+    setSelections((prev) => {
+      const next = [...prev];
+      next[currentIndex] = {
+        kind: 'choice',
+        optionIndex: choiceIndex,
+        isCorrect: isCorrectChoice,
+      };
+      return next;
+    });
+    if (!isCorrectChoice) {
+      const isLastQuestion = currentIndex >= totalQuestions - 1;
+      if (isLastQuestion) {
+        window.setTimeout(() => {
+          handleFinishExam();
+        }, 100);
+      } else {
+        setCurrentIndex((index) => Math.min(totalQuestions - 1, index + 1));
+      }
+    }
+  };
+
+  const handleFillChange = (value: string) => {
+    if (!isExamActive || !currentQuestion || isSummaryVisible) {
+      return;
+    }
+    if (!isFillQuestion(currentQuestion)) {
+      return;
+    }
+    setFillDrafts((prev) => ({
+      ...prev,
+      [currentIndex]: value,
+    }));
+  };
+
+  const handleFillSubmit = () => {
+    if (
+      !isExamActive ||
+      !currentQuestion ||
+      isSummaryVisible ||
+      !isFillQuestion(currentQuestion)
+    ) {
+      return;
+    }
+    const response = (fillDrafts[currentIndex] ?? '').trim();
+    if (!response) {
+      setAlert({
+        text: 'Type an answer before checking.',
+        type: 'info',
+      });
+      return;
+    }
+    const isCorrect =
+      normalizeTextAnswer(response) ===
+      normalizeTextAnswer(currentQuestion.correctAnswer);
+    setSelections((prev) => {
+      const next = [...prev];
+      next[currentIndex] = {
+        kind: 'fill',
+        response,
+        isCorrect,
+      };
+      return next;
+    });
+    if (!isCorrect) {
+      const isLastQuestion = currentIndex >= totalQuestions - 1;
+      if (isLastQuestion) {
+        window.setTimeout(() => {
+          handleFinishExam();
+        }, 100);
+      } else {
+        setCurrentIndex((index) => Math.min(totalQuestions - 1, index + 1));
+      }
+    }
   };
 
   const handleRetakeExam = () => {
@@ -1106,6 +1132,261 @@ const App = () => {
     });
   };
 
+  const handleExportPrintable = async () => {
+    if (isPdfExporting) {
+      return;
+    }
+    if (!activeExam) {
+      setAlert({ text: 'Select an exam before exporting.', type: 'info' });
+      return;
+    }
+    if (!activeExam.questions.length) {
+      setAlert({ text: 'No questions to export yet.', type: 'info' });
+      return;
+    }
+    setIsPdfExporting(true);
+    try {
+      const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+      const marginX = 56;
+      const marginY = 64;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const contentWidth = pageWidth - marginX * 2;
+      let cursorY = marginY;
+
+      const renderQuestions = pdfShuffleQuestions
+        ? shuffleArray(activeExam.questions)
+        : activeExam.questions.slice();
+
+      const ensureSpace = (blockHeight: number) => {
+        if (cursorY + blockHeight > pageHeight - marginY) {
+          doc.addPage();
+          cursorY = marginY;
+        }
+      };
+
+      const addParagraph = (
+        text: string,
+        options?: {
+          fontSize?: number;
+          gapAfter?: number;
+          indent?: number;
+          fontStyle?: 'normal' | 'bold' | 'italic';
+        },
+      ) => {
+        const fontSize = options?.fontSize ?? 12;
+        const lineHeight = fontSize * 1.3;
+        const gapAfter = options?.gapAfter ?? 6;
+        const indent = options?.indent ?? 0;
+        const fontStyle = options?.fontStyle ?? 'normal';
+        doc.setFont('helvetica', fontStyle);
+        doc.setFontSize(fontSize);
+        const lines = doc.splitTextToSize(text, contentWidth - indent);
+        ensureSpace(lines.length * lineHeight);
+        lines.forEach((line: string) => {
+          doc.text(line, marginX + indent, cursorY);
+          cursorY += lineHeight;
+        });
+        cursorY += gapAfter;
+        doc.setFont('helvetica', 'normal');
+      };
+
+      const loadImageData = async (url: string) => {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            return null;
+          }
+          const blob = await response.blob();
+          const dataUrl: string = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
+            const image = new Image();
+            image.onload = () => {
+              resolve({
+                width: image.naturalWidth || image.width,
+                height: image.naturalHeight || image.height,
+              });
+            };
+            image.onerror = () => resolve({ width: 0, height: 0 });
+            image.src = dataUrl;
+          });
+          let format: 'PNG' | 'JPEG' | 'WEBP' = 'PNG';
+          if (blob.type.includes('jpeg') || blob.type.includes('jpg')) {
+            format = 'JPEG';
+          } else if (blob.type.includes('webp')) {
+            format = 'WEBP';
+          }
+          return {
+            dataUrl,
+            format,
+            width: dimensions.width || 640,
+            height: dimensions.height || 480,
+          };
+        } catch {
+          return null;
+        }
+      };
+
+      const addQuestionImage = async (url: string) => {
+        const imageData = await loadImageData(url);
+        if (!imageData) {
+          addParagraph(`Image reference: ${url}`, {
+            indent: 16,
+            fontSize: 10,
+            fontStyle: 'italic',
+          });
+          return;
+        }
+        const maxWidth = contentWidth;
+        const maxHeight = 200;
+        let renderWidth = imageData.width;
+        let renderHeight = imageData.height;
+        const widthScale = maxWidth / renderWidth;
+        const heightScale = maxHeight / renderHeight;
+        const scale = Math.min(1, widthScale, heightScale);
+        renderWidth *= scale;
+        renderHeight *= scale;
+        ensureSpace(renderHeight + 12);
+        doc.addImage(
+          imageData.dataUrl,
+          imageData.format,
+          marginX,
+          cursorY,
+          renderWidth,
+          renderHeight,
+          undefined,
+          'FAST',
+        );
+        cursorY += renderHeight + 10;
+      };
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(22);
+      doc.text(activeExam.title, marginX, cursorY);
+      cursorY += 32;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
+      addParagraph(`Total questions: ${renderQuestions.length}`, {
+        gapAfter: 18,
+      });
+
+      const normalizedWordBankMap = new Map<string, string>();
+
+      for (let index = 0; index < renderQuestions.length; index += 1) {
+        const question = renderQuestions[index];
+        addParagraph(`${index + 1}. ${question.entry}`, {
+          fontSize: 13,
+          fontStyle: 'bold',
+          gapAfter: 6,
+        });
+        if (question.imageUrl) {
+          await addQuestionImage(question.imageUrl);
+        }
+        if (isChoiceQuestion(question)) {
+          question.options.forEach((option) => {
+            addParagraph(`${option.label.toUpperCase()}. ${option.text}`, {
+              indent: 18,
+              fontSize: 12,
+              gapAfter: 4,
+            });
+          });
+        } else {
+          addParagraph('Answer: ________________________________', {
+            indent: 18,
+            fontSize: 12,
+            gapAfter: 8,
+          });
+          if (isFillQuestion(question)) {
+            const cleanedAnswer = question.correctAnswer.trim();
+            if (cleanedAnswer) {
+              const normalizedKey = cleanedAnswer.toLowerCase();
+              if (!normalizedWordBankMap.has(normalizedKey)) {
+                normalizedWordBankMap.set(normalizedKey, cleanedAnswer);
+              }
+            }
+          }
+        }
+        cursorY += 6;
+      }
+
+      // Capture fill-in answers even when no blank placeholder lines rendered (safety net)
+      renderQuestions.forEach((question) => {
+        if (!isFillQuestion(question)) {
+          return;
+        }
+        const cleanedAnswer = question.correctAnswer.trim();
+        if (!cleanedAnswer) {
+          return;
+        }
+        const normalizedKey = cleanedAnswer.toLowerCase();
+        if (!normalizedWordBankMap.has(normalizedKey)) {
+          normalizedWordBankMap.set(normalizedKey, cleanedAnswer);
+        }
+      });
+
+      const wordBankEntries = Array.from(normalizedWordBankMap.values()).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' }),
+      );
+      const shouldIncludeWordBank = pdfIncludeWordBank && wordBankEntries.length > 0;
+      const shouldIncludeAnswerKey = pdfIncludeAnswerKey && renderQuestions.length > 0;
+
+      const startNewSection = (title: string, titleSize = 18) => {
+        doc.addPage();
+        cursorY = marginY;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(titleSize);
+        doc.text(title, marginX, cursorY);
+        cursorY += 26;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(12);
+      };
+
+      if (shouldIncludeWordBank) {
+        startNewSection('Word Bank');
+        wordBankEntries.forEach((entry) => {
+          addParagraph(entry, { gapAfter: 4 });
+        });
+      }
+
+      if (shouldIncludeAnswerKey) {
+        startNewSection('Answer Key');
+        renderQuestions.forEach((question, index) => {
+          const answerText = isChoiceQuestion(question)
+            ? `${question.options[question.correctIndex].label.toUpperCase()} - ${
+                question.options[question.correctIndex].text
+              }`
+            : question.correctAnswer;
+          addParagraph(`Q${index + 1}: ${answerText}`, { gapAfter: 4 });
+        });
+      }
+
+      const normalizedName = activeExam.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      doc.save(`${normalizedName || 'exam'}-printable.pdf`);
+      setAlert({
+        text: `Exported printable PDF for "${activeExam.title}".`,
+        type: 'success',
+      });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to export PDF.', error);
+      setAlert({
+        text: 'Could not export the PDF. Please try again or remove blocked images.',
+        type: 'error',
+      });
+    } finally {
+      setIsPdfExporting(false);
+    }
+  };
+
   const instructionTemplate = `Title: My Custom Exam
 
 Question 1: puella, puellae, f.
@@ -1117,7 +1398,15 @@ Answer: a
 
 Question 2: Translate "salve"
 Type: fill
-Answer: hello`;
+Answer: hello
+
+Question 3: Identify this landmark.
+Image: https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Pont_du_Gard_BLS.jpg/640px-Pont_du_Gard_BLS.jpg
+a. aqueduct
+b. amphitheater
+c. bath complex
+d. palace
+Answer: a`;
 
   const multipleChoiceExample = `Question: Identify the correct translation for "puella".
 a. boy
@@ -1129,6 +1418,14 @@ Answer: b`;
   const fillInBlankExample = `Question: Translate "salve".
 Type: fill
 Answer: hello`;
+
+  const imageQuestionExample = `Question: What structure is pictured here?
+Image: https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Pont_du_Gard_BLS.jpg/640px-Pont_du_Gard_BLS.jpg
+a. aqueduct
+b. triumphal arch
+c. villa
+d. port
+Answer: a`;
 
   const showComingSoon = (feature: string) => {
     setAlert({ text: `${feature} is coming soon.`, type: 'info' });
@@ -1402,6 +1699,25 @@ Answer: hello`;
                   <button
                     type="button"
                     role="menuitem"
+                    disabled={!activeExam || isPdfExporting}
+                    className={`mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
+                      activeExam && !isPdfExporting
+                        ? 'text-cocoa-500 hover:bg-cream-50'
+                        : 'cursor-not-allowed text-cocoa-300'
+                    }`}
+                    onClick={() => {
+                      if (!activeExam) {
+                        return;
+                      }
+                      setIsMenuOpen(false);
+                      void handleExportPrintable();
+                    }}
+                  >
+                    Export printable (.pdf)
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
                     className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
                     onClick={() => {
                       setIsMenuOpen(false);
@@ -1482,6 +1798,16 @@ Answer: hello`;
                           isMobile ? 'text-xl' : 'text-2xl'
                         } font-semibold text-cocoa-500`}
                       />
+                      {currentQuestion?.imageUrl && (
+                        <div className="mt-4 flex justify-center">
+                          <img
+                            src={currentQuestion.imageUrl}
+                            alt={`Illustration for ${currentQuestion.entry}`}
+                            className="max-h-72 w-full rounded-3xl border border-cream-100 bg-white object-contain p-3 shadow-inner sm:max-h-96"
+                            loading="lazy"
+                          />
+                        </div>
+                      )}
                     </section>
 
                     <div className="mt-6 space-y-4">
@@ -1498,6 +1824,7 @@ Answer: hello`;
                               index === currentQuestion!.correctIndex
                             }
                             showStatus={showStatus}
+                            disabled={Boolean(selections[currentIndex])}
                             onSelect={() => handleSelect(index)}
                           />
                         ))
@@ -1651,6 +1978,20 @@ Answer: hello`;
                 </button>
                 <button
                   type="button"
+                  className={`rounded-2xl border px-5 py-3 text-sm font-semibold transition ${
+                    activeExam && !isPdfExporting
+                      ? 'border-emerald-200 text-emerald-600 hover:bg-mint-50'
+                      : 'cursor-not-allowed border-cream-100 text-cocoa-300'
+                  }`}
+                  onClick={() => {
+                    void handleExportPrintable();
+                  }}
+                  disabled={!activeExam || isPdfExporting}
+                >
+                  {isPdfExporting ? 'Preparing PDF…' : 'Export printable (.pdf)'}
+                </button>
+                <button
+                  type="button"
                   className="rounded-2xl border border-cream-100 px-5 py-3 text-sm font-semibold text-cocoa-400 transition hover:border-rose-200 hover:text-rose-500"
                   onClick={() => setShowHelpGuide((prev) => !prev)}
                 >
@@ -1698,7 +2039,7 @@ Answer: hello`;
                     Plain-text exam format guide
                   </h3>
                   <p className="text-sm text-cocoa-400">
-                    Follow these patterns to build imports for multiple choice and fill-in responses.
+                    Follow these patterns to build imports for multiple choice, fill-in responses, or prompts that include reference images (they auto-resize to fit the layout).
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 sm:items-end">
@@ -1712,11 +2053,57 @@ Answer: hello`;
                     </button>
                     <button
                       type="button"
+                      className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                        activeExam && !isPdfExporting
+                          ? 'border-emerald-200 text-emerald-600 hover:bg-mint-50'
+                          : 'cursor-not-allowed border-cream-100 text-cocoa-300'
+                      }`}
+                      onClick={() => {
+                        void handleExportPrintable();
+                      }}
+                      disabled={!activeExam || isPdfExporting}
+                    >
+                      {isPdfExporting ? 'Preparing PDF…' : 'Printable PDF'}
+                    </button>
+                    <button
+                      type="button"
                       className="rounded-2xl bg-rose-400 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500"
                       onClick={handleImportClick}
                     >
                       Import exam (.txt)
                     </button>
+                  </div>
+                  <div className="mt-3 w-full rounded-2xl border border-cream-100 bg-white/60 p-3 text-xs text-cocoa-500 sm:max-w-sm">
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-cocoa-400">
+                      Printable PDF options
+                    </p>
+                    <label className="flex items-center gap-2 font-semibold text-cocoa-500">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                        checked={pdfShuffleQuestions}
+                        onChange={(event) => setPdfShuffleQuestions(event.target.checked)}
+                      />
+                      Shuffle question order
+                    </label>
+                    <label className="mt-2 flex items-center gap-2 font-semibold text-cocoa-500">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                        checked={pdfIncludeAnswerKey}
+                        onChange={(event) => setPdfIncludeAnswerKey(event.target.checked)}
+                      />
+                      Include answer key
+                    </label>
+                    <label className="mt-2 flex items-center gap-2 font-semibold text-cocoa-500">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                        checked={pdfIncludeWordBank}
+                        onChange={(event) => setPdfIncludeWordBank(event.target.checked)}
+                      />
+                      Include word bank (fill-in answers)
+                    </label>
                   </div>
                   <button
                     type="button"
@@ -1744,6 +2131,15 @@ Answer: hello`;
                   </p>
                   <pre className="mt-3 overflow-x-auto rounded-2xl bg-cream-50 p-4 font-mono text-xs leading-6 text-cocoa-600">
                     {fillInBlankExample}
+                  </pre>
+                </article>
+                <article className="rounded-2xl bg-white/80 p-4 shadow-card md:col-span-2">
+                  <h4 className="font-semibold text-cocoa-600">Attach an image</h4>
+                  <p className="mt-2 text-xs">
+                    Include an <code>Image:</code> line after the question to load a hosted URL (PNG, JPG, GIF, or data URL). The picture will automatically shrink to fit alongside the prompt and works for both choice and fill questions.
+                  </p>
+                  <pre className="mt-3 overflow-x-auto rounded-2xl bg-cream-50 p-4 font-mono text-xs leading-6 text-cocoa-600">
+                    {imageQuestionExample}
                   </pre>
                 </article>
               </div>

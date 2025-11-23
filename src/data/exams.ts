@@ -100,6 +100,71 @@ export const defaultExam: Exam = {
   ],
 };
 
-export const defaultExams: Exam[] = [defaultExam];
+export const fillDrillsExam: Exam = {
+  id: 'latin-fill-drills',
+  title: 'Latin Translation Drills',
+  questions: [
+    {
+      kind: 'fill',
+      entry: 'Translate "amicus" into English.',
+      correctAnswer: 'friend',
+    },
+    {
+      kind: 'fill',
+      entry: 'Fill in the blank: "Magistra ____ docet" (the teacher teaches the girl).',
+      correctAnswer: 'puellam',
+    },
+    {
+      kind: 'fill',
+      entry: 'Translate "in aqua".',
+      correctAnswer: 'in the water',
+    },
+    {
+      kind: 'fill',
+      entry: 'Translate "parvus" to English.',
+      correctAnswer: 'small',
+    },
+  ],
+};
+
+export const visualArtifactsExam: Exam = {
+  id: 'latin-visual-artifacts',
+  title: 'Roman Artifact Visuals',
+  questions: [
+    {
+      entry: 'Identify the structure pictured.',
+      imageUrl:
+        'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Pont_du_Gard_BLS.jpg/640px-Pont_du_Gard_BLS.jpg',
+      options: [
+        { label: 'a', text: 'Aqueduct' },
+        { label: 'b', text: 'Colosseum' },
+        { label: 'c', text: 'Forum' },
+        { label: 'd', text: 'Basilica' },
+      ],
+      correctIndex: 0,
+    },
+    {
+      entry: 'What kind of tool is shown here?',
+      imageUrl:
+        'https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Stylus_%28PSF%29.png/480px-Stylus_%28PSF%29.png',
+      options: [
+        { label: 'a', text: 'Wax stylus' },
+        { label: 'b', text: 'Mortar' },
+        { label: 'c', text: 'Helmet crest' },
+        { label: 'd', text: 'Compass' },
+      ],
+      correctIndex: 0,
+    },
+    {
+      kind: 'fill',
+      entry: 'Name the type of public space shown.',
+      imageUrl:
+        'https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Roman_forum_cropped.jpg/640px-Roman_forum_cropped.jpg',
+      correctAnswer: 'forum',
+    },
+  ],
+};
+
+export const defaultExams: Exam[] = [defaultExam, fillDrillsExam, visualArtifactsExam];
 
 export default defaultExam;
