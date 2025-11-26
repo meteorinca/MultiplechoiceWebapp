@@ -43,7 +43,12 @@ const hostingConfig = (() => {
   return null;
 })();
 
-const firebaseConfig = envConfig ?? hostingConfig ?? null;
+const firebaseConfig = hostingConfig ?? envConfig ?? null;
+const firebaseConfigSource: 'env' | 'hosting' | 'none' = hostingConfig
+  ? 'hosting'
+  : envConfig
+    ? 'env'
+    : 'none';
 
 export let app: FirebaseApp | undefined;
 export let db: Firestore | null = null;
@@ -54,12 +59,21 @@ if (firebaseConfig) {
     app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     firebaseReady = true;
+    // eslint-disable-next-line no-console
+    console.info(
+      `Firebase initialized using ${firebaseConfigSource} config (project: ${firebaseConfig.projectId}).`,
+    );
   } catch (error) {
     firebaseReady = false;
     db = null;
     // eslint-disable-next-line no-console
     console.warn('Failed to initialize Firebase. Falling back to local data.', error);
   }
+} else {
+  // eslint-disable-next-line no-console
+  console.warn(
+    'Firebase configuration is missing. Accounts will only persist in local storage.',
+  );
 }
 
 export const isFirebaseConfigured = (): boolean => firebaseReady && Boolean(db);
@@ -67,8 +81,4 @@ export const disableFirebase = (): void => {
   firebaseReady = false;
   db = null;
 };
-export const firebaseConfigSource = envConfig
-  ? 'env'
-  : hostingConfig
-    ? 'hosting'
-    : 'none';
+export { firebaseConfigSource };

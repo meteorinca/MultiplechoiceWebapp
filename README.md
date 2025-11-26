@@ -1,6 +1,6 @@
-# Omni Exam Studio
+# Moe's Exam Studio
 
-Omni Exam Studio is a responsive React + TypeScript web app for building and running multiple-choice exams across every discipline - science, technology, engineering, art, languages, and math (including equation rendering). It mirrors a polished testing experience, supports unlimited stored exams, and keeps everything in local storage so your question banks follow you between sessions.
+Moe's Exam Studio is a responsive React + TypeScript web app for building and running multiple-choice exams across every discipline - science, technology, engineering, art, languages, and math (including equation rendering). It mirrors a polished testing experience, supports unlimited stored exams, and keeps everything in local storage so your question banks follow you between sessions.
 
 ## Features
 - Modern Tailwind CSS UI with mobile-first layout that mirrors the reference mockup.
@@ -41,7 +41,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 
 ## Cloud Sync Setup (Firestore)
 1. In the Firebase console, enable **Cloud Firestore** for your project and choose production mode (adjust rules as needed).
-2. (Optional for local dev or manual config) create a `.env.local` (or `.env`) in the project root with:
+2. Create a `.env.local` (or `.env`) in the project root with:
    ```env
    VITE_FIREBASE_API_KEY=...
    VITE_FIREBASE_AUTH_DOMAIN=...
@@ -50,8 +50,8 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
    VITE_FIREBASE_MESSAGING_SENDER_ID=...
    VITE_FIREBASE_APP_ID=...
    ```
-3. Restart `npm run dev` so Vite picks up the environment variables.
-4. When deployed to Firebase Hosting, the app now fetches the runtime config from `/__/firebase/init.json` **before** booting the React bundle, so Firestore connects with no extra scripts. The `.env` file is only required when you want to run against Firestore outside of hosting.
+3. Restart `npm run dev` so Vite picks up the configuration, then re-run `npm run build` before deploying.
+4. When deployed to Firebase Hosting, the app first tries to fetch the runtime config from `/__/firebase/init.json`. If that endpoint is unavailable, it falls back to the env values baked into the production bundle—so make sure `.env.local` contains the correct Moe project keys **before** running `npm run build` or deploying.
 
 ## Key Folders
 - `src/App.tsx` - Main layout, exam state management, import/export logic, localStorage sync.
@@ -64,7 +64,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 - `src/utils/activity-log.ts` - Session + attempt logging helpers that feed the admin console.
 
 ### Admin Account
-- A starter admin login (`admin` / `chingon`) is provisioned automatically and seeded with an Omni starter exam so you can begin moderating immediately.
+- A starter admin login (`admin` / `chingon`) is provisioned automatically and seeded with a Moe starter exam so you can begin moderating immediately.
 - Inside the admin console you can see every session (login time, logout time, total duration) plus each finished attempt (score + runtime) to keep tabs on your students.
 
 ## Working With Exams
@@ -76,7 +76,7 @@ Omni Exam Studio is a responsive React + TypeScript web app for building and run
 - **Export**: Click **Export current exam (.txt)** to download the active exam in the same text format.
 - **Printable PDF**: Use **Printable PDF** in the format guide to create a ready-to-print packet, and toggle the printable options (question shuffle, answer key, and word bank) right above the button before exporting.
 - **Complete**: Answer the final question and hit **Finish exam** to view the scorecard with retake and back-to-hub shortcuts.
-- **Persistence**: Exams sync to Firebase Cloud Firestore (when configured) and fall back to the localStorage key `omniExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
+- **Persistence**: Exams sync to Firebase Cloud Firestore (when configured) and fall back to the localStorage key `moesExamStudio.exams`. Legacy data saved as `latinExamMaker.exams` is migrated automatically on load.
 
 ### Import Format
 Repeat the Question block as needed, up to 1000 questions:

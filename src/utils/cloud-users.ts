@@ -9,13 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db, disableFirebase, isFirebaseConfigured } from '../lib/firebase';
 import type { UserAccount, UserRole } from '../types/user';
-import {
-  getAllPersistentItems,
-  getPersistentItem,
-  removePersistentItem,
-  requestPersistentStorageAccess,
-  setPersistentItem,
-} from './persistent-store';
+import { CLOUD_SYNC_REQUIRED_MESSAGE } from '../config/cloud';
 
 type StoredUserRecord = UserAccount & {
   passwordHash: string;
@@ -26,7 +20,6 @@ const ADMIN_LOGIN = 'admin';
 const ADMIN_PASSWORD = 'chingon';
 const ADMIN_DISPLAY_NAME = 'Administrator';
 const ADMIN_ROLE: UserRole = 'admin';
-
 const normalizeLogin = (rawLogin: string): string =>
   rawLogin.trim().toLowerCase();
 
@@ -65,7 +58,7 @@ const markFirestoreError = (error: unknown) => {
   firestoreHealthy = false;
   disableFirebase();
   // eslint-disable-next-line no-console
-  console.warn('Firestore unavailable. Falling back to local storage.', error);
+  console.warn('Firestore unavailable. Please check your Firebase configuration.', error);
 };
 
 const getUsersCollection = () => {
@@ -91,7 +84,7 @@ const getUserDocRef = (login: string) => {
 const fetchAllFirestoreUsers = async (): Promise<Record<string, StoredUserRecord>> => {
   const usersCollection = getUsersCollection();
   if (!usersCollection) {
-    return {};
+    throw new UserAuthError(CLOUD_SYNC_REQUIRED_MESSAGE);
   }
   try {
     const snapshot = await getDocs(usersCollection);
@@ -107,16 +100,8 @@ const fetchAllFirestoreUsers = async (): Promise<Record<string, StoredUserRecord
     return result;
   } catch (error) {
     markFirestoreError(error);
-    return {};
+    throw new UserAuthError('Unable to list users from Firestore.', error as FirestoreError);
   }
-};
-
-const readLocalUsers = async (): Promise<Record<string, StoredUserRecord>> => {
-  const entries = await getAllPersistentItems<StoredUserRecord>('users');
-  return entries.reduce<Record<string, StoredUserRecord>>((accumulator, entry) => {
-    accumulator[entry.key] = entry.value;
-    return accumulator;
-  }, {});
 };
 
 const readUserRecord = async (
@@ -124,47 +109,39 @@ const readUserRecord = async (
 ): Promise<StoredUserRecord | null> => {
   const normalized = normalizeLogin(login);
   const docRef = getUserDocRef(normalized);
-  if (docRef) {
-    try {
-      const snapshot = await getDoc(docRef);
-      if (snapshot.exists()) {
-        const data = snapshot.data() as StoredUserRecord;
-        return {
-          ...data,
-          id: normalized,
-          login: normalized,
-        };
-      }
-    } catch (error) {
-      markFirestoreError(error);
-    }
-    return null;
+  if (!docRef) {
+    throw new UserAuthError(CLOUD_SYNC_REQUIRED_MESSAGE);
   }
-
-  const stored = await getPersistentItem<StoredUserRecord>('users', normalized);
-  return stored
-    ? {
-        ...stored,
+  try {
+    const snapshot = await getDoc(docRef);
+    if (snapshot.exists()) {
+      const data = snapshot.data() as StoredUserRecord;
+      return {
+        ...data,
         id: normalized,
         login: normalized,
-      }
-    : null;
+      };
+    }
+  } catch (error) {
+    markFirestoreError(error);
+    throw new UserAuthError('Unable to read user from Firestore.', error as FirestoreError);
+  }
+  return null;
 };
 
 const persistUserRecord = async (
   record: StoredUserRecord,
 ): Promise<void> => {
   const docRef = getUserDocRef(record.login);
-  if (docRef) {
-    try {
-      await setDoc(docRef, record, { merge: true });
-      return;
-    } catch (error) {
-      markFirestoreError(error);
-    }
+  if (!docRef) {
+    throw new UserAuthError(CLOUD_SYNC_REQUIRED_MESSAGE);
   }
-
-  await setPersistentItem('users', record.login, record);
+  try {
+    await setDoc(docRef, record, { merge: true });
+  } catch (error) {
+    markFirestoreError(error);
+    throw new UserAuthError('Unable to write user to Firestore.', error as FirestoreError);
+  }
 };
 
 const stripSensitive = (record: StoredUserRecord): UserAccount => ({
@@ -233,6 +210,35 @@ export const registerUser = async ({
   return stripSensitive(record);
 };
 
+const ensureAdminRecord = async (): Promise<StoredUserRecord> => {
+  const existing = await readUserRecord(ADMIN_LOGIN);
+  if (existing) {
+    if (existing.role !== ADMIN_ROLE) {
+      const updated: StoredUserRecord = {
+        ...existing,
+        role: ADMIN_ROLE,
+      };
+      await persistUserRecord(updated);
+      return updated;
+    }
+    return existing;
+  }
+
+  const passwordHash = await hashPassword(ADMIN_PASSWORD);
+  const timestamp = now();
+  const adminRecord: StoredUserRecord = {
+    id: ADMIN_LOGIN,
+    login: ADMIN_LOGIN,
+    displayName: ADMIN_DISPLAY_NAME,
+    role: ADMIN_ROLE,
+    createdAt: timestamp,
+    lastLoginAt: timestamp,
+    passwordHash,
+  };
+  await persistUserRecord(adminRecord);
+  return adminRecord;
+};
+
 export const authenticateUser = async (
   login: string,
   password: string,
@@ -242,7 +248,10 @@ export const authenticateUser = async (
     throw new UserAuthError('Enter your login to continue.');
   }
 
-  const record = await readUserRecord(normalizedLogin);
+  let record = await readUserRecord(normalizedLogin);
+  if (!record && normalizedLogin === ADMIN_LOGIN) {
+    record = await ensureAdminRecord();
+  }
   if (!record) {
     throw new UserAuthError('We could not find that login.');
   }
@@ -262,17 +271,8 @@ export const authenticateUser = async (
 };
 
 export const listUsers = async (): Promise<UserAccount[]> => {
-  if (canUseFirestore()) {
-    const users = await fetchAllFirestoreUsers();
-    if (Object.keys(users).length > 0) {
-      return Object.values(users)
-        .map((record) => stripSensitive(record))
-        .sort((a, b) => a.createdAt - b.createdAt);
-    }
-  }
-
-  const localUsers = await readLocalUsers();
-  return Object.values(localUsers)
+  const users = await fetchAllFirestoreUsers();
+  return Object.values(users)
     .map((record) => stripSensitive(record))
     .sort((a, b) => a.createdAt - b.createdAt);
 };
@@ -282,16 +282,15 @@ export const deleteUserAccount = async (login: string): Promise<void> => {
   assertAdminLogin(normalizedLogin);
 
   const docRef = getUserDocRef(normalizedLogin);
-  if (docRef) {
-    try {
-      await deleteDoc(docRef);
-      return;
-    } catch (error) {
-      markFirestoreError(error);
-    }
+  if (!docRef) {
+    throw new UserAuthError(CLOUD_SYNC_REQUIRED_MESSAGE);
   }
-
-  await removePersistentItem('users', normalizedLogin);
+  try {
+    await deleteDoc(docRef);
+  } catch (error) {
+    markFirestoreError(error);
+    throw new UserAuthError('Unable to delete user in Firestore.', error as FirestoreError);
+  }
 };
 
 export const resetUserPassword = async (
@@ -311,35 +310,8 @@ export const resetUserPassword = async (
 };
 
 export const ensureAdminAccount = async (): Promise<UserAccount> => {
-  await requestPersistentStorageAccess();
-  const existing = await readUserRecord(ADMIN_LOGIN);
-  if (existing) {
-    if (existing.role !== ADMIN_ROLE) {
-      await persistUserRecord({
-        ...existing,
-        role: ADMIN_ROLE,
-      });
-    }
-    return stripSensitive({
-      ...existing,
-      role: ADMIN_ROLE,
-    });
-  }
-
-  const passwordHash = await hashPassword(ADMIN_PASSWORD);
-  const timestamp = now();
-  const adminRecord: StoredUserRecord = {
-    id: ADMIN_LOGIN,
-    login: ADMIN_LOGIN,
-    displayName: ADMIN_DISPLAY_NAME,
-    role: ADMIN_ROLE,
-    createdAt: timestamp,
-    lastLoginAt: timestamp,
-    passwordHash,
-  };
-
-  await persistUserRecord(adminRecord);
-  return stripSensitive(adminRecord);
+  const record = await ensureAdminRecord();
+  return stripSensitive(record);
 };
 
 export const getIsDatabaseEnabled = (): boolean => canUseFirestore();

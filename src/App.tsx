@@ -20,7 +20,6 @@ import {
   deleteAllUserExams,
   deleteCloudExam,
   fetchUserExamsSnapshot,
-  saveUserExamsLocally,
   subscribeToCloudExams,
   upsertCloudExam,
 } from './utils/cloud-exams';
@@ -34,6 +33,7 @@ import {
   UserAuthError,
 } from './utils/cloud-users';
 import { requestPersistentStorageAccess } from './utils/persistent-store';
+import { CLOUD_SYNC_REQUIRED_MESSAGE } from './config/cloud';
 import {
   endSessionLog,
   getExamAttemptLogs,
@@ -44,8 +44,44 @@ import {
 import type { ExamAttemptLog, SessionLog } from './utils/activity-log';
 import { jsPDF } from 'jspdf';
 
-const SESSION_STORAGE_KEY = 'omniExamStudio.session';
+const SESSION_STORAGE_KEY = 'moesExamStudio.session';
+const LEGACY_SESSION_STORAGE_KEYS = ['omniExamStudio.session'];
 const ADMIN_SEEDED_EXAM_ID = 'admin-starter-exam';
+
+const getStoredSessionPayload = (): string | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const keys = [SESSION_STORAGE_KEY, ...LEGACY_SESSION_STORAGE_KEYS];
+  for (const key of keys) {
+    const payload = window.localStorage.getItem(key);
+    if (payload) {
+      if (key !== SESSION_STORAGE_KEY) {
+        try {
+          window.localStorage.setItem(SESSION_STORAGE_KEY, payload);
+          window.localStorage.removeItem(key);
+        } catch {
+          // noop
+        }
+      }
+      return payload;
+    }
+  }
+  return null;
+};
+
+const clearLegacySessionKeys = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  for (const key of LEGACY_SESSION_STORAGE_KEYS) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // noop
+    }
+  }
+};
 
 type SessionExam = {
   id: string;
@@ -126,36 +162,20 @@ const LogoBadge = ({
   withText = false,
   className = '',
 }: LogoBadgeProps) => {
-  const circleClasses =
-    size === 'lg'
-      ? 'h-28 w-28 text-4xl'
-      : 'h-14 w-14 text-xl';
+  const logoClasses = size === 'lg' ? 'h-28 w-28' : 'h-16 w-16';
   const titleClasses =
     size === 'lg' ? 'text-4xl sm:text-5xl' : 'text-2xl sm:text-3xl';
   return (
     <div className={`flex items-center gap-4 ${className}`}>
-      <div
-        aria-hidden
-        className={`relative flex ${circleClasses} items-center justify-center overflow-hidden rounded-[32px] bg-gradient-to-br from-rose-500 via-rose-400 to-amber-200 shadow-xl ring-4 ring-white/40`}
-      >
-        <img
-          src="/assets/omni-logo.png"
-          alt=""
-          className="pointer-events-none absolute inset-3 h-auto w-auto object-contain opacity-90"
-        />
-        <span className="relative z-10 font-display font-semibold tracking-tight text-white">
-          OE
-        </span>
-      </div>
+      <img
+        src="/assets/moe-logo.png"
+        alt="Moe's Exam Studio logo"
+        className={`pointer-events-none object-contain ${logoClasses}`}
+      />
       {withText && (
-        <div className="flex flex-col">
-          <span className="text-xs font-semibold uppercase tracking-[0.45em] text-rose-300">
-            Omni Exam Studio
-          </span>
-          <span className={`font-display font-semibold text-cocoa-600 ${titleClasses}`}>
-            Omni Exam Studio
-          </span>
-        </div>
+        <span className={`font-display font-semibold text-cocoa-600 ${titleClasses}`}>
+          Moe&apos;s Exam Studio
+        </span>
       )}
     </div>
   );
@@ -192,7 +212,6 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const hasSeededCloudRef = useRef<Record<string, boolean>>({});
-  const localExamsLoadedRef = useRef<Record<string, boolean>>({});
   const activeAttemptRef = useRef<{
     examId: string;
     title: string;
@@ -227,7 +246,7 @@ const App = () => {
           const adminStarterExam: Exam = {
             ...defaultExam,
             id: ADMIN_SEEDED_EXAM_ID,
-            title: 'Omni Starter Exam',
+            title: "Moe's Starter Exam",
             ownerId: adminAccount.id,
           };
           await upsertCloudExam(adminAccount.id, adminStarterExam);
@@ -246,7 +265,7 @@ const App = () => {
       return;
     }
     try {
-      const payload = window.localStorage.getItem(SESSION_STORAGE_KEY);
+      const payload = getStoredSessionPayload();
       if (payload) {
         const parsed = JSON.parse(payload) as UserAccount;
         if (parsed?.id) {
@@ -275,9 +294,11 @@ const App = () => {
     }
     if (!user) {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      clearLegacySessionKeys();
       return;
     }
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+    clearLegacySessionKeys();
   }, [user]);
 
   useEffect(() => {
@@ -304,63 +325,6 @@ const App = () => {
     setShowHelpGuide(false);
     setSidebarOpen(false);
   }, [user]);
-
-  useEffect(() => {
-    if (!user || isFirebaseConfigured()) {
-      return;
-    }
-
-    localExamsLoadedRef.current[user.id] = false;
-    let cancelled = false;
-
-    const loadLocalExams = async () => {
-      try {
-        const stored = await fetchUserExamsSnapshot(user.id);
-        const nextExams =
-          stored.length > 0
-            ? stored.map((exam) => ({ ...exam, ownerId: user.id }))
-            : defaultExams.map((exam) => ({ ...exam, ownerId: user.id }));
-
-        if (!stored.length) {
-          await saveUserExamsLocally(user.id, nextExams);
-        }
-
-        if (!cancelled) {
-          setExams(nextExams);
-          localExamsLoadedRef.current[user.id] = true;
-        }
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to load exams from local storage.', error);
-        if (cancelled) {
-          return;
-        }
-        const seeded = defaultExams.map((exam) => ({
-          ...exam,
-          ownerId: user.id,
-        }));
-        setExams(seeded);
-        localExamsLoadedRef.current[user.id] = true;
-        await saveUserExamsLocally(user.id, seeded);
-      }
-    };
-
-    void loadLocalExams();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-
-  useEffect(() => {
-    if (!user || isFirebaseConfigured()) {
-      return;
-    }
-    if (!localExamsLoadedRef.current[user.id]) {
-      return;
-    }
-    void saveUserExamsLocally(user.id, exams);
-  }, [user, exams]);
 
   useEffect(() => {
     if (!user || !isFirebaseConfigured()) {
@@ -396,7 +360,7 @@ const App = () => {
         // eslint-disable-next-line no-console
         console.error('Failed to sync exams from Firestore.', error);
         setAlert({
-          text: 'Could not sync exams with cloud storage. Showing local copy.',
+          text: CLOUD_SYNC_REQUIRED_MESSAGE,
           type: 'error',
         });
       },
@@ -1436,7 +1400,7 @@ Answer: a`;
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-cream-50 px-6 text-cocoa-500">
         <LogoBadge size="lg" withText />
         <p className="text-sm font-medium text-cocoa-400">
-          Restoring your Omni Exam Studio workspace&hellip;
+          Restoring your Moe&apos;s Exam Studio workspace&hellip;
         </p>
       </div>
     );
@@ -1468,7 +1432,7 @@ Answer: a`;
                 <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-rose-100 font-semibold text-rose-500">
                   3
                 </span>
-                <span>Track progress while Omni Exam Studio handles the scoring.</span>
+                <span>Track progress while Moe&apos;s Exam Studio handles the scoring.</span>
               </li>
             </ul>
           </div>
@@ -1544,7 +1508,7 @@ Answer: a`;
                 {isAuthLoading
                   ? 'Just a moment...'
                   : authMode === 'login'
-                    ? 'Sign in to Omni'
+                    ? 'Sign in'
                     : 'Create account'}
               </button>
             </form>
@@ -1871,7 +1835,7 @@ Answer: a`;
             <div className="rounded-[32px] bg-white px-6 py-10 shadow-card sm:px-10 sm:py-16">
               <header className="max-w-3xl">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-400">
-                  Omni Exam Studio
+                  Moe&apos;s Exam Studio
                 </p>
                 <h1 className="mt-3 font-display text-4xl font-semibold text-cocoa-600">
                   Choose an exam to begin practicing

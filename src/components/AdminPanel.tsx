@@ -87,7 +87,7 @@ const AdminPanel: FC<AdminPanelProps> = ({
               Manage users and exams
             </h2>
             <p className="mt-2 text-sm text-cocoa-400">
-              View and tidy up stored accounts and exam libraries across Omni Exam Studio.
+              View and tidy up stored accounts and exam libraries across Moe&apos;s Exam Studio.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">

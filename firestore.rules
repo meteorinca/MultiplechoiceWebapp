@@ -6,6 +6,11 @@ service cloud.firestore {
     // For production, consider adding additional security measures
     match /users/{userId} {
       allow read, write: if true;
+
+      // Exams stored as subcollections under each user
+      match /exams/{examId} {
+        allow read, write: if true;
+      }
     }
     
     // Exams collection - allow read/write for exam management

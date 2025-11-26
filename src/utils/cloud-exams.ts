@@ -8,13 +8,9 @@ import {
   type FirestoreError,
   type Unsubscribe,
 } from 'firebase/firestore';
-import type { Exam } from '../types/question';
+import type { Exam, Question } from '../types/question';
 import { db, disableFirebase, isFirebaseConfigured } from '../lib/firebase';
-import {
-  getPersistentItem,
-  removePersistentItem,
-  setPersistentItem,
-} from './persistent-store';
+import { CLOUD_SYNC_REQUIRED_MESSAGE } from '../config/cloud';
 
 export type ExamsListener = (
   exams: Exam[],
@@ -28,6 +24,19 @@ const EXAMS_COLLECTION = 'exams';
 
 let firestoreHealthy = true;
 
+const sanitizeQuestionForFirestore = (question: Question): Question => {
+  const sanitizedQuestion: Question = { ...question };
+  if (typeof sanitizedQuestion.imageUrl === 'undefined') {
+    delete sanitizedQuestion.imageUrl;
+  }
+  return sanitizedQuestion;
+};
+
+const prepareExamForFirestore = (exam: Exam): Exam => ({
+  ...exam,
+  questions: exam.questions.map((question) => sanitizeQuestionForFirestore(question)),
+});
+
 const canUseFirestore = () =>
   firestoreHealthy && isFirebaseConfigured() && Boolean(db);
 
@@ -35,7 +44,7 @@ const markFirestoreError = (error: unknown) => {
   firestoreHealthy = false;
   disableFirebase();
   // eslint-disable-next-line no-console
-  console.warn('Firestore unavailable. Falling back to local exams.', error);
+  console.warn('Firestore unavailable. Please check your Firebase configuration.', error);
 };
 
 const getUserExamsCollection = (userId: string) => {
@@ -45,26 +54,12 @@ const getUserExamsCollection = (userId: string) => {
   return collection(db, USERS_COLLECTION, userId, EXAMS_COLLECTION);
 };
 
-const readLocalExams = async (userId: string): Promise<Exam[]> => {
-  const stored = await getPersistentItem<Exam[]>('exams', userId);
-  if (!stored) {
-    return [];
+const requireUserExamsCollection = (userId: string) => {
+  const examsCollection = getUserExamsCollection(userId);
+  if (!examsCollection) {
+    throw new Error(CLOUD_SYNC_REQUIRED_MESSAGE);
   }
-  return stored.map((exam) => ({
-    ...exam,
-    ownerId: userId,
-  }));
-};
-
-const writeLocalExams = async (userId: string, exams: Exam[]): Promise<void> => {
-  await setPersistentItem(
-    'exams',
-    userId,
-    exams.map((exam) => ({
-      ...exam,
-      ownerId: userId,
-    })),
-  );
+  return examsCollection;
 };
 
 export const subscribeToCloudExams = (
@@ -72,15 +67,22 @@ export const subscribeToCloudExams = (
   onChange: ExamsListener,
   onError?: ExamsErrorListener,
 ): Unsubscribe => {
-  const examsCollection = getUserExamsCollection(userId);
-  if (!examsCollection) {
-    void (async () => {
-      const exams = await readLocalExams(userId);
-      onChange(exams, { fromCache: false });
-    })();
+  let examsCollection;
+  try {
+    examsCollection = requireUserExamsCollection(userId);
+  } catch (error) {
+    if (onError) {
+      onError(
+        {
+          code: 'unavailable',
+          message:
+            error instanceof Error ? error.message : CLOUD_SYNC_REQUIRED_MESSAGE,
+          name: 'FirestoreError',
+        } as FirestoreError,
+      );
+    }
     return () => {};
   }
-
   return onSnapshot(
     examsCollection,
     (snapshot) => {
@@ -99,10 +101,6 @@ export const subscribeToCloudExams = (
       if (onError) {
         onError(error);
       }
-      void (async () => {
-        const exams = await readLocalExams(userId);
-        onChange(exams, { fromCache: false });
-      })();
     },
   );
 };
@@ -111,66 +109,35 @@ export const upsertCloudExam = async (
   userId: string,
   exam: Exam,
 ): Promise<void> => {
-  const examsCollection = getUserExamsCollection(userId);
-  if (examsCollection) {
-    try {
-      await setDoc(
-        doc(examsCollection, exam.id),
-        { ...exam, ownerId: userId },
-        { merge: true },
-      );
-      return;
-    } catch (error) {
-      markFirestoreError(error);
-    }
+  const examsCollection = requireUserExamsCollection(userId);
+  try {
+    const payload = prepareExamForFirestore(exam);
+    await setDoc(
+      doc(examsCollection, exam.id),
+      { ...payload, ownerId: userId },
+      { merge: true },
+    );
+  } catch (error) {
+    markFirestoreError(error);
+    throw error;
   }
-
-  const current = await readLocalExams(userId);
-  const next = (() => {
-    const index = current.findIndex((item) => item.id === exam.id);
-    if (index >= 0) {
-      const copy = [...current];
-      copy[index] = {
-        ...exam,
-        ownerId: userId,
-      };
-      return copy;
-    }
-    return [
-      ...current,
-      {
-        ...exam,
-        ownerId: userId,
-      },
-    ];
-  })();
-  await writeLocalExams(userId, next);
 };
 
 export const deleteCloudExam = async (
   userId: string,
   examId: string,
 ): Promise<void> => {
-  const examsCollection = getUserExamsCollection(userId);
-  if (examsCollection) {
-    try {
-      await deleteDoc(doc(examsCollection, examId));
-      return;
-    } catch (error) {
-      markFirestoreError(error);
-    }
+  const examsCollection = requireUserExamsCollection(userId);
+  try {
+    await deleteDoc(doc(examsCollection, examId));
+  } catch (error) {
+    markFirestoreError(error);
+    throw error;
   }
-
-  const current = await readLocalExams(userId);
-  const next = current.filter((exam) => exam.id !== examId);
-  await writeLocalExams(userId, next);
 };
 
 export const fetchUserExamsSnapshot = async (userId: string): Promise<Exam[]> => {
-  const examsCollection = getUserExamsCollection(userId);
-  if (!examsCollection) {
-    return readLocalExams(userId);
-  }
+  const examsCollection = requireUserExamsCollection(userId);
   try {
     const snapshot = await getDocs(examsCollection);
     return snapshot.docs.map((docSnapshot) => {
@@ -183,29 +150,17 @@ export const fetchUserExamsSnapshot = async (userId: string): Promise<Exam[]> =>
     });
   } catch (error) {
     markFirestoreError(error);
-    return readLocalExams(userId);
+    throw error;
   }
 };
 
 export const deleteAllUserExams = async (userId: string): Promise<void> => {
-  const examsCollection = getUserExamsCollection(userId);
-  if (examsCollection) {
-    try {
-      const snapshot = await getDocs(examsCollection);
-      await Promise.all(
-        snapshot.docs.map((docSnapshot) => deleteDoc(docSnapshot.ref)),
-      );
-      return;
-    } catch (error) {
-      markFirestoreError(error);
-    }
+  const examsCollection = requireUserExamsCollection(userId);
+  try {
+    const snapshot = await getDocs(examsCollection);
+    await Promise.all(snapshot.docs.map((docSnapshot) => deleteDoc(docSnapshot.ref)));
+  } catch (error) {
+    markFirestoreError(error);
+    throw error;
   }
-  await removePersistentItem('exams', userId);
-};
-
-export const saveUserExamsLocally = async (
-  userId: string,
-  exams: Exam[],
-): Promise<void> => {
-  await writeLocalExams(userId, exams);
 };

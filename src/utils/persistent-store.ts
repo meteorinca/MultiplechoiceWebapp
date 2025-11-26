@@ -1,8 +1,9 @@
 type StoreName = 'users' | 'exams' | 'sessions' | 'attempts';
 
-const DB_NAME = 'omniExamStudio.db';
+const DB_NAME = 'moesExamStudio.db';
 const DB_VERSION = 1;
-const LOCAL_PREFIX = 'omniExamStudio.persist';
+const LOCAL_PREFIX = 'moesExamStudio.persist';
+const LEGACY_LOCAL_PREFIXES = ['omniExamStudio.persist'];
 
 type StorageMode = 'indexedDB' | 'localStorage' | 'memory';
 
@@ -105,11 +106,14 @@ const withIndexedDBStore = async <T>(
   });
 };
 
-const getLocalStorageKey = (store: StoreName) => `${LOCAL_PREFIX}:${store}`;
+const getLocalStorageKey = (store: StoreName, prefix = LOCAL_PREFIX) => `${prefix}:${store}`;
 
-const readLocalStorageStore = <T>(store: StoreName): Record<string, T> => {
+const readLocalStorageStoreWithPrefix = <T>(
+  store: StoreName,
+  prefix = LOCAL_PREFIX,
+): Record<string, T> => {
   try {
-    const payload = window.localStorage.getItem(getLocalStorageKey(store));
+    const payload = window.localStorage.getItem(getLocalStorageKey(store, prefix));
     if (!payload) {
       return {};
     }
@@ -117,6 +121,26 @@ const readLocalStorageStore = <T>(store: StoreName): Record<string, T> => {
   } catch {
     return {};
   }
+};
+
+const readLocalStorageStore = <T>(store: StoreName): Record<string, T> => {
+  const current = readLocalStorageStoreWithPrefix<T>(store);
+  if (Object.keys(current).length > 0) {
+    return current;
+  }
+  for (const legacyPrefix of LEGACY_LOCAL_PREFIXES) {
+    const legacy = readLocalStorageStoreWithPrefix<T>(store, legacyPrefix);
+    if (Object.keys(legacy).length > 0) {
+      writeLocalStorageStore(store, legacy);
+      try {
+        window.localStorage.removeItem(getLocalStorageKey(store, legacyPrefix));
+      } catch {
+        // noop
+      }
+      return legacy;
+    }
+  }
+  return {};
 };
 
 const writeLocalStorageStore = <T>(store: StoreName, data: Record<string, T>) => {
