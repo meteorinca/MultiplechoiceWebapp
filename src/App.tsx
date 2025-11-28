@@ -13,7 +13,13 @@ import AdminPanel from './components/AdminPanel';
 import { defaultExam, defaultExams } from './data/exams';
 import useMobile from './hooks/use-mobile';
 import { parseExamText, serializeExam } from './utils/exam-io';
-import type { Exam, Question, Selection } from './types/question';
+import type {
+  AssignmentMetadata,
+  AssignmentHistoryEntry,
+  Exam,
+  Question,
+  Selection,
+} from './types/question';
 import { isChoiceQuestion, isFillQuestion } from './types/question';
 import type { UserAccount } from './types/user';
 import {
@@ -87,6 +93,7 @@ type SessionExam = {
   id: string;
   title: string;
   questions: Question[];
+  assignment?: AssignmentMetadata;
 };
 
 const shuffleArray = <T,>(items: T[]): T[] => {
@@ -205,7 +212,7 @@ const App = () => {
   const [sessionExam, setSessionExam] = useState<SessionExam | null>(null);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [shuffleAnswers, setShuffleAnswers] = useState(false);
-  const [pdfShuffleQuestions, setPdfShuffleQuestions] = useState(false);
+  const [pdfShuffleQuestions, setPdfShuffleQuestions] = useState(true);
   const [pdfIncludeAnswerKey, setPdfIncludeAnswerKey] = useState(true);
   const [pdfIncludeWordBank, setPdfIncludeWordBank] = useState(true);
   const [isSummaryVisible, setIsSummaryVisible] = useState(false);
@@ -216,6 +223,8 @@ const App = () => {
     examId: string;
     title: string;
     startedAt: number;
+    incorrectAttempts: number;
+    requireCorrectToAdvance?: boolean;
   } | null>(null);
   const [isAdminConsoleOpen, setIsAdminConsoleOpen] = useState(false);
   const [adminUsers, setAdminUsers] = useState<UserAccount[]>([]);
@@ -232,6 +241,9 @@ const App = () => {
   const [isActivityLoading, setIsActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const [wrongAnswerNotice, setWrongAnswerNotice] = useState<string | null>(null);
+  const [examTimerMs, setExamTimerMs] = useState(0);
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     void requestPersistentStorageAccess();
@@ -691,6 +703,161 @@ const App = () => {
     [adminSelectedUserId, adminUsers, refreshAdminUsers],
   );
 
+  const adminSelectedUser = useMemo(() => {
+    if (!adminSelectedUserId) {
+      return null;
+    }
+    return adminUsers.find((candidate) => candidate.id === adminSelectedUserId) ?? null;
+  }, [adminUsers, adminSelectedUserId]);
+
+  const handleAdminAssignExam = useCallback(
+    async (
+      examId: string,
+      options: { requireCorrectToAdvance: boolean },
+    ) => {
+      if (!user || user.role !== 'admin') {
+        setAlert({
+          text: 'You must be an admin to assign exams.',
+          type: 'error',
+        });
+        return;
+      }
+      if (!adminSelectedUser || adminSelectedUser.role === 'admin') {
+        setAlert({
+          text: 'Select a student account to assign exams.',
+          type: 'info',
+        });
+        return;
+      }
+      const sourceExam = exams.find((exam) => exam.id === examId);
+      if (!sourceExam) {
+        setAlert({
+          text: 'Choose an exam from your library first.',
+          type: 'error',
+        });
+        return;
+      }
+      const clonedQuestions = sourceExam.questions.map((question) => {
+        if (isChoiceQuestion(question)) {
+          return {
+            ...question,
+            options: question.options.map((option) => ({ ...option })),
+          };
+        }
+        return { ...question };
+      });
+      const newExamId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${sourceExam.id}-${Date.now()}`;
+      const assignmentId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `assignment-${Date.now()}`;
+      const assignmentPayload: AssignmentMetadata = {
+        id: assignmentId,
+        assignedBy: user.id,
+        assignedByName: user.displayName,
+        assignedAt: Date.now(),
+        assignedTo: adminSelectedUser.id,
+        assignedToName: adminSelectedUser.displayName,
+        requireCorrectToAdvance: options.requireCorrectToAdvance,
+        history: [],
+      };
+      const newExam: Exam = {
+        ...sourceExam,
+        id: newExamId,
+        ownerId: adminSelectedUser.id,
+        questions: clonedQuestions,
+        assignment: assignmentPayload,
+      };
+      try {
+        await upsertCloudExam(adminSelectedUser.id, newExam);
+        setAlert({
+          text: `Assigned "${sourceExam.title}" to ${adminSelectedUser.displayName}.`,
+          type: 'success',
+        });
+        await loadAdminUserExams(adminSelectedUser.id);
+        if (adminSelectedUser.id === user.id) {
+          setExams((prev) => [...prev, newExam]);
+        }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to assign exam.', error);
+        setAlert({
+          text: 'Could not assign that exam right now.',
+          type: 'error',
+        });
+      }
+    },
+    [adminSelectedUser, exams, loadAdminUserExams, setAlert, user],
+  );
+
+  const handleAdminUpdateExamScore = useCallback(
+    async (
+      targetUserId: string,
+      examId: string,
+      historyId: string,
+      updates: { score: number; total: number; incorrectAttempts?: number; completedAt?: number },
+    ) => {
+      const relevantExams =
+        targetUserId === user?.id ? exams : adminSelectedUserExams;
+      const targetExam = relevantExams.find((candidate) => candidate.id === examId);
+      if (!targetExam?.assignment?.history) {
+        setAlert({
+          text: 'No assignment history to edit for that exam.',
+          type: 'error',
+        });
+        return;
+      }
+      const updatedHistory = targetExam.assignment.history.map((entry) => {
+        if (entry.id !== historyId) {
+          return entry;
+        }
+        return {
+          ...entry,
+          score: Math.max(0, updates.score),
+          total: Math.max(1, updates.total),
+          incorrectAttempts: Math.max(0, updates.incorrectAttempts ?? entry.incorrectAttempts ?? 0),
+          completedAt: updates.completedAt ?? entry.completedAt,
+        };
+      });
+      const updatedExam: Exam = {
+        ...targetExam,
+        assignment: {
+          ...targetExam.assignment,
+          history: updatedHistory,
+          lastScore: updatedHistory[0]?.score ?? targetExam.assignment.lastScore,
+          lastCompletedAt:
+            updatedHistory[0]?.completedAt ?? targetExam.assignment.lastCompletedAt,
+        },
+      };
+      try {
+        await upsertCloudExam(targetUserId, updatedExam);
+        if (targetUserId === user?.id) {
+          setExams((prev) =>
+            prev.map((examItem) => (examItem.id === updatedExam.id ? updatedExam : examItem)),
+          );
+        }
+        if (adminSelectedUserId === targetUserId) {
+          await loadAdminUserExams(targetUserId);
+        }
+        setAlert({
+          text: 'Updated that assignment record.',
+          type: 'success',
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to update assignment record.', error);
+        setAlert({
+          text: 'Could not update that record right now.',
+          type: 'error',
+        });
+      }
+    },
+    [adminSelectedUserExams, adminSelectedUserId, exams, loadAdminUserExams, setAlert, user],
+  );
+
   const activeExam = useMemo(() => {
     if (!activeExamId) {
       return undefined;
@@ -698,12 +865,19 @@ const App = () => {
     return exams.find((exam) => exam.id === activeExamId);
   }, [exams, activeExamId]);
 
-  const adminSelectedUser = useMemo(() => {
-    if (!adminSelectedUserId) {
-      return null;
-    }
-    return adminUsers.find((candidate) => candidate.id === adminSelectedUserId) ?? null;
-  }, [adminUsers, adminSelectedUserId]);
+  const studentAssignmentBuckets = useMemo(() => {
+    const assignmentExams = exams.filter((exam) => Boolean(exam.assignment));
+    const pending = assignmentExams.filter(
+      (exam) => (exam.assignment?.history?.length ?? 0) === 0,
+    );
+    const completed = assignmentExams.filter(
+      (exam) => (exam.assignment?.history?.length ?? 0) > 0,
+    );
+    return {
+      pending,
+      completed,
+    };
+  }, [exams]);
 
   useEffect(() => {
     if (!sessionExam || !isExamActive) {
@@ -719,6 +893,32 @@ const App = () => {
     setFillDrafts({});
   }, [sessionExam?.id, isExamActive]);
 
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !isExamActive ||
+      isSummaryVisible ||
+      !activeAttemptRef.current
+    ) {
+      setExamTimerMs(0);
+      return;
+    }
+    const updateTimer = () => {
+      if (activeAttemptRef.current) {
+        setExamTimerMs(Math.max(Date.now() - activeAttemptRef.current.startedAt, 0));
+      }
+    };
+    updateTimer();
+    const intervalId = window.setInterval(updateTimer, 1000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isExamActive, isSummaryVisible, sessionExam?.id]);
+
+  useEffect(() => {
+    setWrongAnswerNotice(null);
+  }, [currentIndex, sessionExam?.id, isSummaryVisible]);
+
   const totalQuestions = sessionExam?.questions.length ?? 0;
   const currentQuestion =
     isExamActive && totalQuestions > 0
@@ -728,7 +928,9 @@ const App = () => {
     isExamActive && sessionExam && totalQuestions > 0 && currentQuestion,
   );
   const currentFillDraft = fillDrafts[currentIndex] ?? '';
-
+  const requiresPerfectAnswer = Boolean(
+    sessionExam?.assignment?.requireCorrectToAdvance,
+  );
   const score = useMemo(() => {
     return selections.reduce((count, selection) => {
       if (selection?.isCorrect) {
@@ -738,12 +940,18 @@ const App = () => {
     }, 0);
   }, [selections]);
 
-  const canProceed = Boolean(selections[currentIndex]);
+  const currentSelection = selections[currentIndex];
+  const canProceed = requiresPerfectAnswer
+    ? Boolean(currentSelection?.isCorrect)
+    : Boolean(currentSelection);
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < totalQuestions - 1;
 
   const showStatus = Boolean(
-    selections[currentIndex] && hasQuestions && !isSummaryVisible,
+    currentSelection && hasQuestions && !isSummaryVisible,
+  );
+  const isCurrentStepLocked = Boolean(
+    currentSelection && (!requiresPerfectAnswer || currentSelection.isCorrect),
   );
 
   const startExam = useCallback(
@@ -757,6 +965,8 @@ const App = () => {
       setIsExamActive(true);
       setShowHelpGuide(false);
       setIsMenuOpen(false);
+      setWrongAnswerNotice(null);
+      setExamTimerMs(0);
       const preparedQuestions = prepareSessionQuestions(selectedExam, {
         shuffleQuestions,
         shuffleAnswers,
@@ -765,11 +975,14 @@ const App = () => {
         examId: selectedExam.id,
         title: selectedExam.title,
         startedAt: Date.now(),
+        incorrectAttempts: 0,
+        requireCorrectToAdvance: selectedExam.assignment?.requireCorrectToAdvance,
       };
       setSessionExam({
         id: selectedExam.id,
         title: selectedExam.title,
         questions: preparedQuestions,
+        assignment: selectedExam.assignment,
       });
     },
     [exams, shuffleAnswers, shuffleQuestions],
@@ -809,6 +1022,8 @@ const App = () => {
     setIsMenuOpen(false);
     setIsSummaryVisible(false);
     setActiveExamId(nextExamId);
+    setExamTimerMs(0);
+    setWrongAnswerNotice(null);
     activeAttemptRef.current = null;
   };
 
@@ -839,6 +1054,7 @@ const App = () => {
             title: sessionExam.title,
             startedAt: finishedAt,
           };
+    const incorrectAttempts = activeAttemptRef.current?.incorrectAttempts ?? 0;
     void (async () => {
       try {
         await recordExamAttempt({
@@ -858,7 +1074,44 @@ const App = () => {
         console.error('Failed to log exam attempt.', error);
       }
     })();
+    if (user) {
+      const storedExam = exams.find((examItem) => examItem.id === sessionExam.id);
+      if (storedExam?.assignment) {
+        const historyEntry: AssignmentHistoryEntry = {
+          id:
+            typeof crypto !== 'undefined' && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `assignment-history-${Date.now()}`,
+          completedAt: finishedAt,
+          score,
+          total: sessionExam.questions.length,
+          incorrectAttempts,
+        };
+        const nextHistory = [historyEntry, ...(storedExam.assignment.history ?? [])];
+        const updatedExam: Exam = {
+          ...storedExam,
+          assignment: {
+            ...storedExam.assignment,
+            lastCompletedAt: finishedAt,
+            lastScore: score,
+            history: nextHistory,
+          },
+        };
+        setExams((prev) =>
+          prev.map((examItem) => (examItem.id === updatedExam.id ? updatedExam : examItem)),
+        );
+        void (async () => {
+          try {
+            await upsertCloudExam(user.id, updatedExam);
+          } catch (error) {
+            // eslint-disable-next-line no-console
+            console.error('Failed to store assignment progress.', error);
+          }
+        })();
+      }
+    }
     activeAttemptRef.current = null;
+    setWrongAnswerNotice(null);
     setIsSummaryVisible(true);
     setSidebarOpen(false);
   };
@@ -871,6 +1124,9 @@ const App = () => {
       return;
     }
     const isCorrectChoice = choiceIndex === currentQuestion.correctIndex;
+    if (!isCorrectChoice && activeAttemptRef.current) {
+      activeAttemptRef.current.incorrectAttempts += 1;
+    }
     setSelections((prev) => {
       const next = [...prev];
       next[currentIndex] = {
@@ -881,15 +1137,26 @@ const App = () => {
       return next;
     });
     if (!isCorrectChoice) {
-      const isLastQuestion = currentIndex >= totalQuestions - 1;
-      if (isLastQuestion) {
-        window.setTimeout(() => {
-          handleFinishExam();
-        }, 100);
-      } else {
-        setCurrentIndex((index) => Math.min(totalQuestions - 1, index + 1));
+      setWrongAnswerNotice("You got it WRONG :'(");
+      if (requiresPerfectAnswer) {
+        return;
       }
+      const advance = () => {
+        const isLastQuestion = currentIndex >= totalQuestions - 1;
+        if (isLastQuestion) {
+          handleFinishExam();
+        } else {
+          setCurrentIndex((index) => Math.min(totalQuestions - 1, index + 1));
+        }
+      };
+      if (typeof window !== 'undefined') {
+        window.setTimeout(advance, 800);
+      } else {
+        advance();
+      }
+      return;
     }
+    setWrongAnswerNotice(null);
   };
 
   const handleFillChange = (value: string) => {
@@ -925,6 +1192,9 @@ const App = () => {
     const isCorrect =
       normalizeTextAnswer(response) ===
       normalizeTextAnswer(currentQuestion.correctAnswer);
+    if (!isCorrect && activeAttemptRef.current) {
+      activeAttemptRef.current.incorrectAttempts += 1;
+    }
     setSelections((prev) => {
       const next = [...prev];
       next[currentIndex] = {
@@ -935,6 +1205,9 @@ const App = () => {
       return next;
     });
     if (!isCorrect) {
+      if (requiresPerfectAnswer) {
+        return;
+      }
       const isLastQuestion = currentIndex >= totalQuestions - 1;
       if (isLastQuestion) {
         window.setTimeout(() => {
@@ -967,6 +1240,13 @@ const App = () => {
   };
 
   const handleDeleteExam = async (examId: string) => {
+    if (!user || user.role !== 'admin') {
+      setAlert({
+        text: 'Only admins can remove exams.',
+        type: 'error',
+      });
+      return;
+    }
     const examToDelete = exams.find((exam) => exam.id === examId);
     if (!examToDelete) {
       return;
@@ -1008,6 +1288,13 @@ const App = () => {
   };
 
   const handleImportClick = () => {
+    if (!isAdmin) {
+      setAlert({
+        text: 'Importing exams is limited to admins.',
+        type: 'error',
+      });
+      return;
+    }
     fileInputRef.current?.click();
   };
 
@@ -1016,11 +1303,12 @@ const App = () => {
     if (!file) {
       return;
     }
-    if (!user) {
+    if (!user || user.role !== 'admin') {
       setAlert({
-        text: 'Please sign in before importing exams.',
+        text: 'Only admins can import exams.',
         type: 'error',
       });
+      event.target.value = '';
       return;
     }
     try {
@@ -1068,6 +1356,13 @@ const App = () => {
   };
 
   const handleExport = () => {
+    if (!isAdmin) {
+      setAlert({
+        text: 'Only admins can export exams.',
+        type: 'error',
+      });
+      return;
+    }
     if (!activeExam) {
       setAlert({ text: 'Select an exam before exporting.', type: 'info' });
       return;
@@ -1097,6 +1392,13 @@ const App = () => {
   };
 
   const handleExportPrintable = async () => {
+    if (!isAdmin) {
+      setAlert({
+        text: 'Only admins can export printable exams.',
+        type: 'error',
+      });
+      return;
+    }
     if (isPdfExporting) {
       return;
     }
@@ -1261,11 +1563,6 @@ const App = () => {
             });
           });
         } else {
-          addParagraph('Answer: ________________________________', {
-            indent: 18,
-            fontSize: 12,
-            gapAfter: 8,
-          });
           if (isFillQuestion(question)) {
             const cleanedAnswer = question.correctAnswer.trim();
             if (cleanedAnswer) {
@@ -1626,81 +1923,85 @@ Answer: a`;
                   >
                     Go to exam hub
                   </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      showComingSoon('Question sharing');
-                    }}
-                  >
-                    Share current question
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      showComingSoon('Bulk edit');
-                    }}
-                  >
-                    Bulk edit exams
-                  </button>
-                  <div className="my-1 h-px bg-cream-100" />
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      handleExport();
-                    }}
-                  >
-                    Export exam (.txt)
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={!activeExam || isPdfExporting}
-                    className={`mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
-                      activeExam && !isPdfExporting
-                        ? 'text-cocoa-500 hover:bg-cream-50'
-                        : 'cursor-not-allowed text-cocoa-300'
-                    }`}
-                    onClick={() => {
-                      if (!activeExam) {
-                        return;
-                      }
-                      setIsMenuOpen(false);
-                      void handleExportPrintable();
-                    }}
-                  >
-                    Export printable (.pdf)
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      handleImportClick();
-                    }}
-                  >
-                    Import exam (.txt)
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      setShowHelpGuide((prev) => !prev);
-                    }}
-                  >
-                    {showHelpGuide ? 'Hide help guide' : 'Show help guide'}
-                  </button>
+                  {isAdmin && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          showComingSoon('Question sharing');
+                        }}
+                      >
+                        Share current question
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          showComingSoon('Bulk edit');
+                        }}
+                      >
+                        Bulk edit exams
+                      </button>
+                      <div className="my-1 h-px bg-cream-100" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          handleExport();
+                        }}
+                      >
+                        Export exam (.txt)
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!activeExam || isPdfExporting}
+                        className={`mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition ${
+                          activeExam && !isPdfExporting
+                            ? 'text-cocoa-500 hover:bg-cream-50'
+                            : 'cursor-not-allowed text-cocoa-300'
+                        }`}
+                        onClick={() => {
+                          if (!activeExam) {
+                            return;
+                          }
+                          setIsMenuOpen(false);
+                          void handleExportPrintable();
+                        }}
+                      >
+                        Export printable (.pdf)
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          handleImportClick();
+                        }}
+                      >
+                        Import exam (.txt)
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-cocoa-500 transition hover:bg-cream-50"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          setShowHelpGuide((prev) => !prev);
+                        }}
+                      >
+                        {showHelpGuide ? 'Hide help guide' : 'Show help guide'}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -1752,6 +2053,7 @@ Answer: a`;
                       score={score}
                       total={totalQuestions}
                       questionIndex={currentIndex}
+                      elapsedMs={isExamActive ? examTimerMs : undefined}
                     />
 
                     <section className="mt-8">
@@ -1788,7 +2090,7 @@ Answer: a`;
                               index === currentQuestion!.correctIndex
                             }
                             showStatus={showStatus}
-                            disabled={Boolean(selections[currentIndex])}
+                            disabled={isCurrentStepLocked}
                             onSelect={() => handleSelect(index)}
                           />
                         ))
@@ -1799,7 +2101,7 @@ Answer: a`;
                           onChange={handleFillChange}
                           onSubmit={handleFillSubmit}
                           disabled={!isExamActive}
-                          isLocked={Boolean(selections[currentIndex])}
+                          isLocked={isCurrentStepLocked}
                         />
                       )}
                     </div>
@@ -1808,6 +2110,11 @@ Answer: a`;
                       selection={selections[currentIndex]}
                       question={currentQuestion!}
                     />
+                    {wrongAnswerNotice && (
+                      <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-sm font-semibold text-rose-500">
+                        {wrongAnswerNotice}
+                      </div>
+                    )}
 
                     <NavigationControls
                       hasPrev={hasPrev}
@@ -1831,7 +2138,7 @@ Answer: a`;
                 </div>
               )}
             </div>
-          ) : (
+          ) : isAdmin ? (
             <div className="rounded-[32px] bg-white px-6 py-10 shadow-card sm:px-10 sm:py-16">
               <header className="max-w-3xl">
                 <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-400">
@@ -1993,9 +2300,153 @@ Answer: a`;
                 </span>
               </div>
             </div>
+          ) : (
+            <div className="rounded-[32px] bg-white px-6 py-10 shadow-card sm:px-10 sm:py-16">
+              <header className="max-w-3xl">
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-400">
+                  Assigned learning path
+                </p>
+                <h1 className="mt-3 font-display text-4xl font-semibold text-cocoa-600">
+                  Focus on today&apos;s exams
+                </h1>
+                <p className="mt-4 text-base text-cocoa-400">
+                  Work through the exams assigned to you and review your recent progress below.
+                </p>
+              </header>
+
+              <section className="mt-10">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="font-display text-2xl font-semibold text-cocoa-600">
+                    Assigned exams
+                  </h2>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-400">
+                    {studentAssignmentBuckets.pending.length} active
+                  </p>
+                </div>
+                {studentAssignmentBuckets.pending.length === 0 ? (
+                  <div className="mt-4 rounded-3xl border border-dashed border-cream-100 bg-cream-50/70 px-6 py-8 text-center text-sm font-semibold text-cocoa-400">
+                    You&apos;re all caught up! New assignments will appear here when your teacher posts them.
+                  </div>
+                ) : (
+                  <div className="mt-4 grid gap-5 sm:grid-cols-2">
+                    {studentAssignmentBuckets.pending.map((exam) => {
+                      const assignment = exam.assignment!;
+                      return (
+                        <div
+                          key={exam.id}
+                          className="flex h-full flex-col rounded-3xl border border-cream-100 bg-cream-50/60 p-5"
+                        >
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-rose-400">
+                              Exam
+                            </p>
+                            <h3 className="mt-2 font-display text-2xl font-semibold text-cocoa-600">
+                              {exam.title}
+                            </h3>
+                            <p className="mt-2 text-sm font-medium text-cocoa-400">
+                              Assigned by {assignment.assignedByName ?? 'Admin'} on{' '}
+                              {new Date(assignment.assignedAt).toLocaleString()}
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-cocoa-400">
+                              {exam.questions.length}{' '}
+                              {exam.questions.length === 1 ? 'question' : 'questions'} &middot;{' '}
+                              {assignment.requireCorrectToAdvance
+                                ? 'Must answer correctly before moving on'
+                                : 'Standard practice mode'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-6 rounded-2xl bg-rose-400 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-500"
+                            onClick={() => startExam(exam.id)}
+                          >
+                            Begin exam
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <section className="mt-12">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="font-display text-2xl font-semibold text-cocoa-600">
+                    Completed exams
+                  </h2>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-rose-400">
+                    {studentAssignmentBuckets.completed.length} tracked
+                  </p>
+                </div>
+                {studentAssignmentBuckets.completed.length === 0 ? (
+                  <div className="mt-4 rounded-3xl border border-dashed border-cream-100 bg-cream-50/70 px-6 py-8 text-center text-sm font-semibold text-cocoa-400">
+                    Finish an assigned exam to start building your progress history.
+                  </div>
+                ) : (
+                  <div className="mt-4 grid gap-5 sm:grid-cols-2">
+                    {studentAssignmentBuckets.completed.map((exam) => {
+                      const assignment = exam.assignment!;
+                      const history = assignment.history ?? [];
+                      const latest = history[0];
+                      return (
+                        <div
+                          key={exam.id}
+                          className="flex h-full flex-col rounded-3xl border border-cream-100 bg-white/70 p-5"
+                        >
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
+                              Completed
+                            </p>
+                            <h3 className="mt-2 font-display text-2xl font-semibold text-cocoa-600">
+                              {exam.title}
+                            </h3>
+                            {latest ? (
+                              <p className="mt-1 text-sm font-medium text-cocoa-400">
+                                Last score {latest.score}/{latest.total} on{' '}
+                                {new Date(latest.completedAt).toLocaleString()}
+                              </p>
+                            ) : null}
+                            <p className="mt-1 text-xs font-medium text-cocoa-400">
+                              {exam.questions.length}{' '}
+                              {exam.questions.length === 1 ? 'question' : 'questions'} &middot;{' '}
+                              {assignment.requireCorrectToAdvance
+                                ? 'Mastery mode'
+                                : 'Standard practice'}
+                            </p>
+                          </div>
+                          <ul className="mt-4 space-y-2 rounded-2xl bg-cream-50/80 p-3 text-xs text-cocoa-500">
+                            {history.slice(0, 4).map((entry) => (
+                              <li key={entry.id} className="flex flex-col border-b border-cream-100 pb-2 last:border-b-0 last:pb-0">
+                                <span className="font-semibold text-cocoa-600">
+                                  {new Date(entry.completedAt).toLocaleString()}
+                                </span>
+                                <span>
+                                  Score {entry.score}/{entry.total} &middot; Wrong tries:{' '}
+                                  {entry.incorrectAttempts ?? 0}
+                                </span>
+                              </li>
+                            ))}
+                            {history.length === 0 && (
+                              <li className="text-cocoa-400">No attempts recorded yet.</li>
+                            )}
+                          </ul>
+                          <button
+                            type="button"
+                            className="mt-4 rounded-2xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                            onClick={() => startExam(exam.id)}
+                          >
+                            Retake exam
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
           )}
 
-          {showHelpGuide && (
+          {isAdmin && showHelpGuide && (
             <section className="mt-10 rounded-3xl border border-cream-100 bg-cream-50/60 px-6 py-6 sm:px-10">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -2137,6 +2588,7 @@ Answer: a`;
             onSelect={handleExamSelect}
             onToggle={() => setSidebarOpen((prev) => !prev)}
             onDelete={handleDeleteExam}
+            canDelete={isAdmin}
           />
         )}
         {user?.role === 'admin' && (
@@ -2161,6 +2613,9 @@ Answer: a`;
             isLoadingActivity={isActivityLoading}
             activityError={activityError}
             onRefreshActivity={refreshActivityLogs}
+            assignableExams={exams}
+            onAssignExam={handleAdminAssignExam}
+            onUpdateExamScore={handleAdminUpdateExamScore}
           />
         )}
       </div>

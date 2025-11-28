@@ -1,7 +1,5 @@
 # Moe Exam Studio Tasks
 
-1. **PDF Export Defaults**
-   - [ ] Enable “Shuffle question order” for Printable PDFs by default.
 2. **Role-Based UI Split**
    - [ ] Detect `user.role === 'admin'` vs. student and gate authoring/import/export tools accordingly.
    - [ ] Replace the student dashboard with a focused “Assigned Exams” + “Completed Exams” layout.

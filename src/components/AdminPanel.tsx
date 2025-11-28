@@ -1,4 +1,5 @@
 import type { FC } from 'react';
+import { useEffect, useState } from 'react';
 import type { Exam } from '../types/question';
 import type { UserAccount } from '../types/user';
 import type { ExamAttemptLog, SessionLog } from '../utils/activity-log';
@@ -24,6 +25,22 @@ interface AdminPanelProps {
   isLoadingActivity: boolean;
   activityError?: string | null;
   onRefreshActivity: () => void;
+  assignableExams: Exam[];
+  onAssignExam: (
+    examId: string,
+    options: { requireCorrectToAdvance: boolean },
+  ) => Promise<void> | void;
+  onUpdateExamScore: (
+    userId: string,
+    examId: string,
+    historyId: string,
+    updates: {
+      score: number;
+      total: number;
+      incorrectAttempts?: number;
+      completedAt?: number;
+    },
+  ) => Promise<void> | void;
 }
 
 const AdminPanel: FC<AdminPanelProps> = ({
@@ -47,6 +64,9 @@ const AdminPanel: FC<AdminPanelProps> = ({
   isLoadingActivity,
   activityError,
   onRefreshActivity,
+  assignableExams,
+  onAssignExam,
+  onUpdateExamScore,
 }) => {
   if (!isOpen) {
     return null;
@@ -74,6 +94,59 @@ const AdminPanel: FC<AdminPanelProps> = ({
 
   const topSessions = sessionLogs.slice(0, 6);
   const topAttempts = examAttemptLogs.slice(0, 6);
+  const [requirePerfect, setRequirePerfect] = useState(false);
+  const [scoreEdit, setScoreEdit] = useState<{
+    examId: string;
+    historyId: string;
+    score: string;
+    total: string;
+    incorrectAttempts: string;
+    completedAt: string;
+  } | null>(null);
+
+  const toLocalInput = (timestamp?: number) => {
+    if (!timestamp) {
+      return '';
+    }
+    const iso = new Date(timestamp).toISOString();
+    return iso.slice(0, 16);
+  };
+
+  const resetScoreEdit = () => {
+    setScoreEdit(null);
+  };
+
+  useEffect(() => {
+    setRequirePerfect(false);
+    resetScoreEdit();
+  }, [selectedUser?.id]);
+
+  const handleEditSubmit = async () => {
+    if (!scoreEdit || !selectedUser) {
+      return;
+    }
+    const parsedScore = Number(scoreEdit.score);
+    const parsedTotal = Number(scoreEdit.total);
+    if (Number.isNaN(parsedScore) || Number.isNaN(parsedTotal)) {
+      return;
+    }
+    const parsedIncorrectAttempts = Number(scoreEdit.incorrectAttempts);
+    const parsedTimestamp = scoreEdit.completedAt
+      ? Date.parse(scoreEdit.completedAt)
+      : undefined;
+    await onUpdateExamScore(selectedUser.id, scoreEdit.examId, scoreEdit.historyId, {
+      score: parsedScore,
+      total: parsedTotal,
+      incorrectAttempts: Number.isNaN(parsedIncorrectAttempts)
+        ? undefined
+        : parsedIncorrectAttempts,
+      completedAt: Number.isNaN(parsedTimestamp) ? undefined : parsedTimestamp,
+    });
+    resetScoreEdit();
+  };
+
+  const canAssignToSelectedUser =
+    Boolean(selectedUser) && selectedUser?.role !== 'admin';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(31,23,18,0.55)] px-4 py-8">
@@ -244,31 +317,255 @@ const AdminPanel: FC<AdminPanelProps> = ({
                 </div>
               ) : (
                 <ul className="divide-y divide-cream-100">
-                  {selectedUserExams.map((exam) => (
-                    <li key={exam.id} className="flex items-start justify-between gap-4 px-5 py-4">
-                      <div>
-                        <p className="font-display text-lg font-semibold text-cocoa-600">
-                          {exam.title}
-                        </p>
-                        <p className="text-xs font-medium text-cocoa-400">
-                          {exam.questions.length}{' '}
-                          {exam.questions.length === 1 ? 'question' : 'questions'}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-500 transition hover:bg-rose-50"
-                        onClick={() => onDeleteExam(selectedUser.id, exam.id)}
+                  {selectedUserExams.map((exam) => {
+                    const assignmentHistory = exam.assignment?.history ?? [];
+                    return (
+                      <li
+                        key={exam.id}
+                        className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
                       >
-                        Delete
-                      </button>
-                    </li>
-                  ))}
+                        <div className="flex-1">
+                          <p className="font-display text-lg font-semibold text-cocoa-600">
+                            {exam.title}
+                          </p>
+                          <p className="text-xs font-medium text-cocoa-400">
+                            {exam.questions.length}{' '}
+                            {exam.questions.length === 1 ? 'question' : 'questions'}
+                          </p>
+                          {exam.assignment ? (
+                            <div className="mt-3 rounded-2xl border border-cream-100 bg-cream-50/50 p-3 text-xs text-cocoa-500">
+                              <p className="font-semibold text-cocoa-500">
+                                Assigned by {exam.assignment.assignedByName ?? 'admin'} on{' '}
+                                {formatDate(exam.assignment.assignedAt)}
+                              </p>
+                              <p className="text-[11px] font-medium text-cocoa-400">
+                                Mode:{' '}
+                                {exam.assignment.requireCorrectToAdvance
+                                  ? 'Only advance when correct'
+                                  : 'Standard practice'}
+                              </p>
+                              {assignmentHistory.length === 0 ? (
+                                <p className="mt-2 text-[11px] font-medium text-cocoa-400">
+                                  No completion history recorded yet.
+                                </p>
+                              ) : (
+                                <div className="mt-3 space-y-3">
+                                  {assignmentHistory.map((entry) => {
+                                    const isEditing =
+                                      scoreEdit?.examId === exam.id &&
+                                      scoreEdit?.historyId === entry.id;
+                                    return (
+                                      <div
+                                        key={entry.id}
+                                        className="rounded-xl border border-cream-100 bg-white/70 p-3"
+                                      >
+                                        <p className="text-xs font-semibold text-cocoa-500">
+                                          Completed: {formatDate(entry.completedAt)}
+                                        </p>
+                                        <p className="text-[11px] font-medium text-cocoa-400">
+                                          Score: {entry.score}/{entry.total} &middot; Wrong tries:{' '}
+                                          {entry.incorrectAttempts ?? 0}
+                                        </p>
+                                        {isEditing ? (
+                                          <div className="mt-3 space-y-2">
+                                            <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-cocoa-500">
+                                              <label className="flex flex-col gap-1">
+                                                Score
+                                                <input
+                                                  type="number"
+                                                  min="0"
+                                                  className="rounded-xl border border-cream-200 px-2 py-1 text-xs"
+                                                  value={scoreEdit.score}
+                                                  onChange={(event) =>
+                                                    setScoreEdit((prev) =>
+                                                      prev
+                                                        ? { ...prev, score: event.target.value }
+                                                        : prev,
+                                                    )
+                                                  }
+                                                />
+                                              </label>
+                                              <label className="flex flex-col gap-1">
+                                                Total
+                                                <input
+                                                  type="number"
+                                                  min="1"
+                                                  className="rounded-xl border border-cream-200 px-2 py-1 text-xs"
+                                                  value={scoreEdit.total}
+                                                  onChange={(event) =>
+                                                    setScoreEdit((prev) =>
+                                                      prev
+                                                        ? { ...prev, total: event.target.value }
+                                                        : prev,
+                                                    )
+                                                  }
+                                                />
+                                              </label>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-cocoa-500">
+                                              <label className="flex flex-col gap-1">
+                                                Wrong attempts
+                                                <input
+                                                  type="number"
+                                                  min="0"
+                                                  className="rounded-xl border border-cream-200 px-2 py-1 text-xs"
+                                                  value={scoreEdit.incorrectAttempts}
+                                                  onChange={(event) =>
+                                                    setScoreEdit((prev) =>
+                                                      prev
+                                                        ? {
+                                                            ...prev,
+                                                            incorrectAttempts: event.target.value,
+                                                          }
+                                                        : prev,
+                                                    )
+                                                  }
+                                                />
+                                              </label>
+                                              <label className="flex flex-col gap-1">
+                                                Completed at
+                                                <input
+                                                  type="datetime-local"
+                                                  className="rounded-xl border border-cream-200 px-2 py-1 text-xs"
+                                                  value={scoreEdit.completedAt}
+                                                  onChange={(event) =>
+                                                    setScoreEdit((prev) =>
+                                                      prev
+                                                        ? {
+                                                            ...prev,
+                                                            completedAt: event.target.value,
+                                                          }
+                                                        : prev,
+                                                    )
+                                                  }
+                                                />
+                                              </label>
+                                            </div>
+                                            <div className="flex gap-2">
+                                              <button
+                                                type="button"
+                                                className="w-full rounded-2xl bg-rose-400 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-500"
+                                                onClick={() => {
+                                                  void handleEditSubmit();
+                                                }}
+                                              >
+                                                Save changes
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="w-full rounded-2xl border border-cream-200 px-3 py-2 text-xs font-semibold text-cocoa-500 transition hover:border-rose-200 hover:text-rose-500"
+                                                onClick={resetScoreEdit}
+                                              >
+                                                Cancel
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            className="mt-2 text-xs font-semibold text-rose-500 transition hover:text-rose-600"
+                                            onClick={() =>
+                                              setScoreEdit({
+                                                examId: exam.id,
+                                                historyId: entry.id,
+                                                score: entry.score.toString(),
+                                                total: entry.total.toString(),
+                                                incorrectAttempts: (
+                                                  entry.incorrectAttempts ?? 0
+                                                ).toString(),
+                                                completedAt: toLocalInput(entry.completedAt),
+                                              })
+                                            }
+                                          >
+                                            Edit score/attempt
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-[11px] font-medium text-cocoa-400">
+                              Personal practice exam (no assignment metadata).
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="h-fit rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-500 transition hover:bg-rose-50"
+                          onClick={() => onDeleteExam(selectedUser.id, exam.id)}
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
           </section>
         </div>
+
+        {canAssignToSelectedUser && (
+          <section className="rounded-3xl border border-cream-100 bg-cream-50/60 p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-display text-xl font-semibold text-cocoa-600">
+                  Assign exams to {selectedUser?.displayName}
+                </h3>
+                <p className="text-xs font-medium text-cocoa-400">
+                  Copy an exam from your workspace and include optional mastery rules.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-xs font-semibold text-cocoa-500">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                  checked={requirePerfect}
+                  onChange={(event) => setRequirePerfect(event.target.checked)}
+                />
+                Only advance when correct
+              </label>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {assignableExams.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-cream-100 bg-white/70 px-4 py-6 text-sm font-semibold text-cocoa-400">
+                  Build an exam in your library to assign it to students.
+                </p>
+              ) : (
+                assignableExams.map((exam) => (
+                  <div
+                    key={exam.id}
+                    className="flex flex-col justify-between rounded-2xl border border-cream-100 bg-white/70 p-4"
+                  >
+                    <div>
+                      <p className="font-display text-lg font-semibold text-cocoa-600">
+                        {exam.title}
+                      </p>
+                      <p className="text-xs font-medium text-cocoa-400">
+                        {exam.questions.length}{' '}
+                        {exam.questions.length === 1 ? 'question' : 'questions'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="mt-4 rounded-2xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-50"
+                      onClick={() => {
+                        void onAssignExam(exam.id, {
+                          requireCorrectToAdvance: requirePerfect,
+                        });
+                      }}
+                    >
+                      Assign to {selectedUser?.displayName}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-3xl border border-cream-100 bg-cream-50/60 p-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

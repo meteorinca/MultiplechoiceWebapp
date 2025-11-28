@@ -8,6 +8,7 @@ interface ExamSidebarProps {
   onSelect: (id: string) => void;
   onToggle: () => void;
   onDelete: (id: string) => void | Promise<void>;
+  canDelete?: boolean;
 }
 
 const ExamSidebar: FC<ExamSidebarProps> = ({
@@ -17,6 +18,7 @@ const ExamSidebar: FC<ExamSidebarProps> = ({
   onSelect,
   onToggle,
   onDelete,
+  canDelete = true,
 }) => {
   return (
     <aside
@@ -40,8 +42,7 @@ const ExamSidebar: FC<ExamSidebarProps> = ({
         </button>
       </div>
       <p className="mt-2 text-sm text-cocoa-300">
-        Tap an exam to load it. Import as many as you like (up to 1000 questions
-        each).
+        Tap an exam to load it and continue where you left off.
       </p>
       <ul className="mt-4 space-y-2">
         {exams.map((exam) => {
@@ -62,17 +63,19 @@ const ExamSidebar: FC<ExamSidebarProps> = ({
                     {exam.questions.length} questions
                   </span>
                 </button>
-              <button
-                type="button"
-                aria-label={`Delete ${exam.title}`}
-                className="absolute right-3 top-3 rounded-full border border-transparent bg-white/80 px-3 py-1 text-xs font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void onDelete(exam.id);
-                }}
-              >
-                Delete
-              </button>
+              {canDelete && (
+                <button
+                  type="button"
+                  aria-label={`Delete ${exam.title}`}
+                  className="absolute right-3 top-3 rounded-full border border-transparent bg-white/80 px-3 py-1 text-xs font-semibold text-rose-500 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-2"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void onDelete(exam.id);
+                  }}
+                >
+                  Delete
+                </button>
+              )}
             </li>
           );
         })}

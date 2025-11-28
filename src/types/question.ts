@@ -37,11 +37,33 @@ export type FillSelection = {
 
 export type Selection = ChoiceSelection | FillSelection | null;
 
+export type AssignmentHistoryEntry = {
+  id: string;
+  completedAt: number;
+  score: number;
+  total: number;
+  incorrectAttempts?: number;
+};
+
+export type AssignmentMetadata = {
+  id: string;
+  assignedBy: string;
+  assignedByName?: string;
+  assignedAt: number;
+  assignedTo: string;
+  assignedToName?: string;
+  requireCorrectToAdvance?: boolean;
+  history?: AssignmentHistoryEntry[];
+  lastCompletedAt?: number;
+  lastScore?: number;
+};
+
 export type Exam = {
   id: string;
   title: string;
   questions: Question[];
   ownerId?: string;
+  assignment?: AssignmentMetadata;
 };
 
 export const isFillQuestion = (question: Question): question is FillQuestion =>
