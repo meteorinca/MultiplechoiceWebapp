@@ -6,7 +6,7 @@ Moe's Exam Studio is a responsive React + TypeScript web app for building and ru
 - Modern Tailwind CSS UI with mobile-first layout that mirrors the reference mockup.
 - KaTeX-powered math typesetting: wrap any prompt or option in `$$...$$` to render LaTeX equations.
 - Stored exam management with Firebase Cloud Firestore sync (plus local caching), quick switching, plain-text import/export, and one-click deletion.
-- Fill-in-the-blank prompts alongside multiple-choice questions, all graded instantly. .
+- Fill-in-the-blank prompts alongside multiple-choice questions, all graded instantly.
 - Built-in admin console that logs every sign-in and graded attempt so you always know who practiced, when, and for how long.
 - Optional shuffle toggles for question order and answer order before each practice session.
 - Printable PDF exports that let you shuffle the printed order, decide if the answer key is attached, and auto-generate a word bank from fill-in answers.
