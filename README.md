@@ -142,4 +142,4 @@ Guidelines:
 The included `firebase.json` config serves the Vite build output from `dist/` and rewrites all routes to `index.html` for client-side navigation.
 
 ## License
-MIT (adjust as needed for your repository).
+No copying or cloning under any circumstances nor liable for any damages or issues. 
