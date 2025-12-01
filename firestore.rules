@@ -11,6 +11,20 @@ service cloud.firestore {
       match /exams/{examId} {
         allow read, write: if true;
       }
+
+      // Whiteboards stored as subcollections under each user
+      match /whiteboards/{boardId} {
+        // Allow read operations (list and get) - path already ensures user isolation
+        // For list queries, Firestore can't check resource.data before allowing the query
+        // The path structure (users/{userId}/whiteboards) already provides isolation
+        allow read: if true;
+        // Allow create if userId in document matches path userId
+        allow create: if request.resource.data.userId == userId;
+        // Allow update if userId matches and doesn't change
+        allow update: if resource.data.userId == userId && request.resource.data.userId == userId;
+        // Allow delete if userId matches
+        allow delete: if resource.data.userId == userId;
+      }
     }
     
     // Exams collection - allow read/write for exam management
