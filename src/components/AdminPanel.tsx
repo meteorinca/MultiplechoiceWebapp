@@ -28,7 +28,7 @@ interface AdminPanelProps {
   assignableExams: Exam[];
   onAssignExam: (
     examId: string,
-    options: { requireCorrectToAdvance: boolean },
+    options: { requireCorrectToAdvance: boolean; shuffleQuestions: boolean },
   ) => Promise<void> | void;
   onUpdateExamScore: (
     userId: string,
@@ -95,6 +95,7 @@ const AdminPanel: FC<AdminPanelProps> = ({
   const topSessions = sessionLogs.slice(0, 6);
   const topAttempts = examAttemptLogs.slice(0, 6);
   const [requirePerfect, setRequirePerfect] = useState(false);
+  const [shuffleOnAssign, setShuffleOnAssign] = useState(true);
   const [scoreEdit, setScoreEdit] = useState<{
     examId: string;
     historyId: string;
@@ -118,6 +119,7 @@ const AdminPanel: FC<AdminPanelProps> = ({
 
   useEffect(() => {
     setRequirePerfect(false);
+    setShuffleOnAssign(true);
     resetScoreEdit();
   }, [selectedUser?.id]);
 
@@ -344,6 +346,10 @@ const AdminPanel: FC<AdminPanelProps> = ({
                                   ? 'Only advance when correct'
                                   : 'Standard practice'}
                               </p>
+                              <p className="text-[11px] font-medium text-cocoa-400">
+                                Question order:{' '}
+                                {exam.assignment.shuffleQuestions ? 'Shuffled for this assignment' : 'Original order'}
+                              </p>
                               {assignmentHistory.length === 0 ? (
                                 <p className="mt-2 text-[11px] font-medium text-cocoa-400">
                                   No completion history recorded yet.
@@ -519,15 +525,26 @@ const AdminPanel: FC<AdminPanelProps> = ({
                   Copy an exam from your workspace and include optional mastery rules.
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-xs font-semibold text-cocoa-500">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
-                  checked={requirePerfect}
-                  onChange={(event) => setRequirePerfect(event.target.checked)}
-                />
-                Only advance when correct
-              </label>
+              <div className="flex flex-col items-start gap-2 text-xs font-semibold text-cocoa-500 sm:flex-row sm:items-center sm:gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                    checked={shuffleOnAssign}
+                    onChange={(event) => setShuffleOnAssign(event.target.checked)}
+                  />
+                  Shuffle question order
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-cream-200 text-rose-500 focus:ring-rose-400"
+                    checked={requirePerfect}
+                    onChange={(event) => setRequirePerfect(event.target.checked)}
+                  />
+                  Only advance when correct
+                </label>
+              </div>
             </div>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {assignableExams.length === 0 ? (
@@ -555,6 +572,7 @@ const AdminPanel: FC<AdminPanelProps> = ({
                       onClick={() => {
                         void onAssignExam(exam.id, {
                           requireCorrectToAdvance: requirePerfect,
+                          shuffleQuestions: shuffleOnAssign,
                         });
                       }}
                     >

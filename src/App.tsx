@@ -718,7 +718,7 @@ const App = () => {
   const handleAdminAssignExam = useCallback(
     async (
       examId: string,
-      options: { requireCorrectToAdvance: boolean },
+      options: { requireCorrectToAdvance: boolean; shuffleQuestions: boolean },
     ) => {
       if (!user || user.role !== 'admin') {
         setAlert({
@@ -767,6 +767,7 @@ const App = () => {
         assignedTo: adminSelectedUser.id,
         assignedToName: adminSelectedUser.displayName,
         requireCorrectToAdvance: options.requireCorrectToAdvance,
+        shuffleQuestions: options.shuffleQuestions,
         history: [],
       };
       const newExam: Exam = {
@@ -936,6 +937,7 @@ const App = () => {
   const requiresPerfectAnswer = Boolean(
     sessionExam?.assignment?.requireCorrectToAdvance,
   );
+  const isAssignmentSession = Boolean(sessionExam?.assignment);
   const score = useMemo(() => {
     return selections.reduce((count, selection) => {
       if (selection?.isCorrect) {
@@ -949,7 +951,7 @@ const App = () => {
   const canProceed = requiresPerfectAnswer
     ? Boolean(currentSelection?.isCorrect)
     : Boolean(currentSelection);
-  const hasPrev = currentIndex > 0;
+  const hasPrev = !isAssignmentSession && currentIndex > 0;
   const hasNext = currentIndex < totalQuestions - 1;
 
   const showStatus = Boolean(
@@ -973,8 +975,10 @@ const App = () => {
       setIsMenuOpen(false);
       setWrongAnswerNotice(null);
       setExamTimerMs(0);
+      const shouldShuffleQuestions =
+        selectedExam.assignment?.shuffleQuestions ?? shuffleQuestions;
       const preparedQuestions = prepareSessionQuestions(selectedExam, {
-        shuffleQuestions,
+        shuffleQuestions: shouldShuffleQuestions,
         shuffleAnswers,
       });
       activeAttemptRef.current = {
@@ -1042,7 +1046,7 @@ const App = () => {
   };
 
   const goPrev = () => {
-    if (isSummaryVisible) {
+    if (isSummaryVisible || isAssignmentSession) {
       return;
     }
     setCurrentIndex((index) => Math.max(0, index - 1));
@@ -2172,7 +2176,11 @@ Answer: a`;
                         {wrongAnswerNotice}
                       </div>
                     )}
-
+                    {isAssignmentSession && (
+                      <p className="mt-4 text-center text-xs font-semibold text-cocoa-400">
+                        Previous navigation is disabled for assigned exams.
+                      </p>
+                    )}
                     <NavigationControls
                       hasPrev={hasPrev}
                       hasNext={hasNext}
@@ -2410,6 +2418,9 @@ Answer: a`;
                               {assignment.requireCorrectToAdvance
                                 ? 'Must answer correctly before moving on'
                                 : 'Standard practice mode'}
+                              {assignment.shuffleQuestions
+                                ? ' - Questions are shuffled'
+                                : ''}
                             </p>
                           </div>
                           <button

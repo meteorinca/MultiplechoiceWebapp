@@ -53,6 +53,7 @@ export type AssignmentMetadata = {
   assignedTo: string;
   assignedToName?: string;
   requireCorrectToAdvance?: boolean;
+  shuffleQuestions?: boolean;
   history?: AssignmentHistoryEntry[];
   lastCompletedAt?: number;
   lastScore?: number;
