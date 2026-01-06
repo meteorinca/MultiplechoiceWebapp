@@ -151,8 +151,8 @@ const AdminPanel: FC<AdminPanelProps> = ({
     Boolean(selectedUser) && selectedUser?.role !== 'admin';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(31,23,18,0.55)] px-4 py-8">
-      <div className="relative flex w-full max-w-6xl flex-col gap-6 rounded-[36px] bg-white p-8 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[rgba(31,23,18,0.55)] px-4 py-8">
+      <div className="relative mt-4 flex w-full max-w-6xl max-h-[90vh] flex-col gap-6 overflow-y-auto rounded-[36px] bg-white p-8 shadow-2xl">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-rose-300">
